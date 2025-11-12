@@ -11,12 +11,17 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
+    "@supabase/supabase-js": "^2.81.1",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "supabase": "^2.58.5"
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "supabase": "^2.58.5",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"
