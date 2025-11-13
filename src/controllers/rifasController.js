@@ -146,19 +146,45 @@ export const editarRifa = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-// 🗑️ Eliminar rifa
+// 🗑️ Eliminar rifa + imagen del storage
 export const eliminarRifa = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { data, error } = await supabaseAdmin.from("rifas").delete().eq("id", id).select();
-    if (error) return res.status(500).json({ success: false, message: error.message });
-    if (!data.length) return res.status(404).json({ success: false, message: "Rifa no encontrada" });
+    // 🔹 Primero obtenemos la rifa para saber el nombre de la imagen
+    const { data: rifaData, error: selectError } = await supabaseAdmin
+      .from("rifas")
+      .select("*")
+      .eq("id", id)
+      .single();
 
-    res.json({ success: true, message: "Rifa eliminada con éxito" });
+    if (selectError) return res.status(500).json({ success: false, message: selectError.message });
+    if (!rifaData) return res.status(404).json({ success: false, message: "Rifa no encontrada" });
+
+    // 🔹 Extraer el nombre del archivo de la URL
+    const urlParts = rifaData.imagen_url.split("/");
+    const filename = urlParts[urlParts.length - 1];
+
+    // 🪣 Eliminar la imagen del bucket
+    const { error: deleteError } = await supabaseAdmin.storage
+      .from("rifas")
+      .remove([filename]);
+
+    if (deleteError) console.warn("⚠️ No se pudo eliminar la imagen del storage:", deleteError.message);
+
+    // 🔹 Eliminar la rifa de la DB
+    const { data, error } = await supabaseAdmin
+      .from("rifas")
+      .delete()
+      .eq("id", id)
+      .select();
+
+    if (error) return res.status(500).json({ success: false, message: error.message });
+
+    res.json({ success: true, message: "Rifa y su imagen eliminadas con éxito" });
+
   } catch (err) {
     console.error("❌ Error en eliminarRifa:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
