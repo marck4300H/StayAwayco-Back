@@ -101,3 +101,64 @@ export const listarRifas = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+// ✏️ Editar rifa
+export const editarRifa = async (req, res) => {
+  try {
+    const { id } = req.params; // id de la rifa a editar
+    const { titulo, descripcion } = req.body;
+    const archivo = req.file;
+
+    // Validaciones básicas
+    if (!titulo || !descripcion) {
+      return res.status(400).json({ success: false, message: "Faltan campos obligatorios." });
+    }
+
+    let publicUrl;
+    if (archivo) {
+      // Subir nueva imagen si se proporciona
+      const extension = path.extname(archivo.originalname);
+      const filename = `${uuidv4()}${extension}`;
+      const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+        .from("rifas")
+        .upload(filename, archivo.buffer, { contentType: archivo.mimetype, upsert: true });
+      if (uploadError) return res.status(500).json({ success: false, message: uploadError.message });
+      const { data: publicUrlData } = supabaseAdmin.storage.from("rifas").getPublicUrl(filename);
+      publicUrl = publicUrlData.publicUrl;
+    }
+
+    // Actualizar la rifa en DB
+    const { data, error } = await supabaseAdmin
+      .from("rifas")
+      .update({
+        titulo,
+        descripcion,
+        ...(publicUrl && { imagen_url: publicUrl }),
+      })
+      .eq("id", id)
+      .select();
+
+    if (error) return res.status(500).json({ success: false, message: error.message });
+    if (!data.length) return res.status(404).json({ success: false, message: "Rifa no encontrada" });
+
+    res.json({ success: true, message: "Rifa actualizada con éxito", rifa: data[0] });
+  } catch (err) {
+    console.error("❌ Error en editarRifa:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+// 🗑️ Eliminar rifa
+export const eliminarRifa = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data, error } = await supabaseAdmin.from("rifas").delete().eq("id", id).select();
+    if (error) return res.status(500).json({ success: false, message: error.message });
+    if (!data.length) return res.status(404).json({ success: false, message: "Rifa no encontrada" });
+
+    res.json({ success: true, message: "Rifa eliminada con éxito" });
+  } catch (err) {
+    console.error("❌ Error en eliminarRifa:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
