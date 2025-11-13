@@ -257,3 +257,69 @@ export const eliminarRifa = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// 🧮 Obtener porcentaje, disponibles y vendidos
+export const getRifaById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 1️⃣ Obtener rifa
+    const { data: rifa, error: rifaError } = await supabaseAdmin
+      .from("rifas")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (rifaError || !rifa) {
+      return res.status(404).json({ error: "Rifa no encontrada" });
+    }
+
+    // 2️⃣ Obtener bloques SIN mover la variable (aquí estaba tu error)
+    const { data: bloques, error: bloquesError } = await supabaseAdmin
+      .from("numeros")
+      .select("numeros_array")
+      .eq("rifa_id", id);
+
+    if (bloquesError) {
+      console.log("📛 Error obteniendo bloques:", bloquesError);
+      return res.status(500).json({ error: "Error obteniendo bloques" });
+    }
+
+    if (!bloques || bloques.length === 0) {
+      return res.json({
+        ...rifa,
+        disponibles: 0,
+        vendidos: rifa.cantidad_numeros,
+        porcentaje: 100
+      });
+    }
+
+    // 3️⃣ Calcular TOTAL disponibles (sumar longitudes)
+    let disponibles = 0;
+
+    for (const bloque of bloques) {
+      if (Array.isArray(bloque.numeros_array)) {
+        disponibles += bloque.numeros_array.length;
+      }
+    }
+
+    // 4️⃣ Cálculo de vendidos
+    const total = rifa.cantidad_numeros;
+    const vendidos = total - disponibles;
+
+    // 5️⃣ Porcentaje
+    const porcentaje = total === 0 ? 0 : (vendidos / total) * 100;
+
+    // 6️⃣ Respuesta final
+    return res.json({
+      ...rifa,
+      disponibles,
+      vendidos,
+      porcentaje: Number(porcentaje.toFixed(2)),
+    });
+
+  } catch (err) {
+    console.error("🔥 Error interno:", err);
+    return res.status(500).json({ error: "Error interno del servidor" });
+  }
+};
