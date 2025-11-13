@@ -13,14 +13,16 @@ export const crearRifa = async (req, res) => {
     console.log("📩 Body recibido:", req.body);
     console.log("🖼️ Archivo recibido:", req.file);
 
-    const { titulo, descripcion } = req.body;
+    const { titulo, descripcion, cantidad_numeros } = req.body;
     const archivo = req.file;
 
     // Validar campos requeridos
-    if (!titulo || !descripcion) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Faltan campos obligatorios (título o descripción)." });
+    if (!titulo || !descripcion || !cantidad_numeros) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Faltan campos obligatorios (título, descripción o cantidad de números).",
+      });
     }
 
     if (!archivo) {
@@ -42,7 +44,10 @@ export const crearRifa = async (req, res) => {
       });
 
     if (uploadError) {
-      console.error("❌ Error al subir imagen a Supabase Storage:", uploadError.message);
+      console.error(
+        "❌ Error al subir imagen a Supabase Storage:",
+        uploadError.message
+      );
       return res
         .status(500)
         .json({ success: false, message: uploadError.message });
@@ -58,33 +63,69 @@ export const crearRifa = async (req, res) => {
     const publicUrl = publicUrlData.publicUrl;
 
     // 💾 Guardar la rifa en la base de datos
-    const { data, error } = await supabaseAdmin
+    const { data: rifaData, error: rifaError } = await supabaseAdmin
       .from("rifas")
       .insert([
         {
-          titulo, // ✅ ya no usamos "nombre"
+          titulo,
           descripcion,
+          cantidad_numeros: parseInt(cantidad_numeros, 10),
           imagen_url: publicUrl,
         },
       ])
       .select();
 
-    if (error) {
-      console.error("❌ Error al insertar rifa en DB:", error.message);
-      return res.status(500).json({ success: false, message: error.message });
+    if (rifaError) {
+      console.error("❌ Error al insertar rifa en DB:", rifaError.message);
+      return res.status(500).json({ success: false, message: rifaError.message });
     }
 
-    console.log("✅ Rifa creada correctamente:", data[0]);
+    const nuevaRifa = rifaData[0];
+    console.log("✅ Rifa creada correctamente:", nuevaRifa);
+
+    // 🧮 Generar arrays de números y guardarlos
+    const totalNumeros = parseInt(nuevaRifa.cantidad_numeros);
+    const cantidadArrays = 10;
+    const numerosPorArray = Math.floor(totalNumeros / cantidadArrays);
+    const digitos = totalNumeros <= 9999 ? 4 : 5;
+
+    for (let i = 0; i < cantidadArrays; i++) {
+      const inicio = i * numerosPorArray;
+      const fin = i === cantidadArrays - 1 ? totalNumeros : inicio + numerosPorArray;
+
+      const bloque = [];
+      for (let j = inicio; j < fin; j++) {
+        bloque.push(j.toString().padStart(digitos, "0"));
+      }
+
+      const { error: insertError } = await supabaseAdmin
+        .from("numeros")
+        .insert([
+          {
+            numeros_array: bloque,
+            indice_array: i,
+            rifa_id: nuevaRifa.id,
+          },
+        ]);
+
+      if (insertError) {
+        console.error(`❌ Error insertando bloque ${i}:`, insertError.message);
+      } else {
+        console.log(`✅ Bloque ${i + 1} insertado (${bloque.length} números)`);
+      }
+    }
+
     res.json({
       success: true,
-      message: "Rifa creada con éxito",
-      rifa: data[0],
+      message: "Rifa creada con éxito y números generados automáticamente.",
+      rifa: nuevaRifa,
     });
   } catch (err) {
     console.error("⚠️ Error inesperado en crearRifa:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
 // 📋 Listar todas las rifas
 export const listarRifas = async (req, res) => {
   try {
@@ -101,88 +142,116 @@ export const listarRifas = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
 // ✏️ Editar rifa
 export const editarRifa = async (req, res) => {
   try {
-    const { id } = req.params; // id de la rifa a editar
-    const { titulo, descripcion } = req.body;
+    const { id } = req.params;
+    const { titulo, descripcion, cantidad_numeros } = req.body;
     const archivo = req.file;
 
-    // Validaciones básicas
-    if (!titulo || !descripcion) {
-      return res.status(400).json({ success: false, message: "Faltan campos obligatorios." });
+    if (!titulo || !descripcion || !cantidad_numeros) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Faltan campos obligatorios." });
     }
 
     let publicUrl;
     if (archivo) {
-      // Subir nueva imagen si se proporciona
       const extension = path.extname(archivo.originalname);
       const filename = `${uuidv4()}${extension}`;
       const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
         .from("rifas")
-        .upload(filename, archivo.buffer, { contentType: archivo.mimetype, upsert: true });
-      if (uploadError) return res.status(500).json({ success: false, message: uploadError.message });
-      const { data: publicUrlData } = supabaseAdmin.storage.from("rifas").getPublicUrl(filename);
+        .upload(filename, archivo.buffer, {
+          contentType: archivo.mimetype,
+          upsert: true,
+        });
+
+      if (uploadError)
+        return res
+          .status(500)
+          .json({ success: false, message: uploadError.message });
+
+      const { data: publicUrlData } = supabaseAdmin.storage
+        .from("rifas")
+        .getPublicUrl(filename);
+
       publicUrl = publicUrlData.publicUrl;
     }
 
-    // Actualizar la rifa en DB
     const { data, error } = await supabaseAdmin
       .from("rifas")
       .update({
         titulo,
         descripcion,
+        cantidad_numeros: parseInt(cantidad_numeros, 10),
         ...(publicUrl && { imagen_url: publicUrl }),
       })
       .eq("id", id)
       .select();
 
-    if (error) return res.status(500).json({ success: false, message: error.message });
-    if (!data.length) return res.status(404).json({ success: false, message: "Rifa no encontrada" });
+    if (error)
+      return res.status(500).json({ success: false, message: error.message });
 
-    res.json({ success: true, message: "Rifa actualizada con éxito", rifa: data[0] });
+    if (!data.length)
+      return res
+        .status(404)
+        .json({ success: false, message: "Rifa no encontrada" });
+
+    res.json({
+      success: true,
+      message: "Rifa actualizada con éxito",
+      rifa: data[0],
+    });
   } catch (err) {
     console.error("❌ Error en editarRifa:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
 // 🗑️ Eliminar rifa + imagen del storage
 export const eliminarRifa = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 🔹 Primero obtenemos la rifa para saber el nombre de la imagen
     const { data: rifaData, error: selectError } = await supabaseAdmin
       .from("rifas")
       .select("*")
       .eq("id", id)
       .single();
 
-    if (selectError) return res.status(500).json({ success: false, message: selectError.message });
-    if (!rifaData) return res.status(404).json({ success: false, message: "Rifa no encontrada" });
+    if (selectError)
+      return res
+        .status(500)
+        .json({ success: false, message: selectError.message });
 
-    // 🔹 Extraer el nombre del archivo de la URL
+    if (!rifaData)
+      return res
+        .status(404)
+        .json({ success: false, message: "Rifa no encontrada" });
+
     const urlParts = rifaData.imagen_url.split("/");
     const filename = urlParts[urlParts.length - 1];
 
-    // 🪣 Eliminar la imagen del bucket
     const { error: deleteError } = await supabaseAdmin.storage
       .from("rifas")
       .remove([filename]);
 
-    if (deleteError) console.warn("⚠️ No se pudo eliminar la imagen del storage:", deleteError.message);
+    if (deleteError)
+      console.warn(
+        "⚠️ No se pudo eliminar la imagen del storage:",
+        deleteError.message
+      );
 
-    // 🔹 Eliminar la rifa de la DB
-    const { data, error } = await supabaseAdmin
-      .from("rifas")
-      .delete()
-      .eq("id", id)
-      .select();
+    const { error } = await supabaseAdmin.from("rifas").delete().eq("id", id);
 
-    if (error) return res.status(500).json({ success: false, message: error.message });
+    if (error)
+      return res.status(500).json({ success: false, message: error.message });
 
-    res.json({ success: true, message: "Rifa y su imagen eliminadas con éxito" });
-
+    res.json({
+      success: true,
+      message: "Rifa y su imagen eliminadas con éxito",
+    });
   } catch (err) {
     console.error("❌ Error en eliminarRifa:", err);
     res.status(500).json({ success: false, message: err.message });
