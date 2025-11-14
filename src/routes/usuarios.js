@@ -1,3 +1,4 @@
+// routes/usuariosRoutes.js
 import express from "express";
 import {
   registrarUsuario,
@@ -6,23 +7,24 @@ import {
   editarPerfil,
   eliminarUsuario,
 } from "../controllers/usuariosController.js";
-import { verifyUsuarioToken } from "../middlewares/verifyUsuarioToken.js";
+
+import { verifyUsuarioToken } from "../middleware/authUsuarios.js";
 
 const router = express.Router();
 
-// Registrar
+// Registrar usuario
 router.post("/registrar", registrarUsuario);
 
 // Login
 router.post("/login", loginUsuario);
 
-// Obtener perfil del usuario autenticado
+// Obtener perfil
 router.get("/perfil", verifyUsuarioToken, obtenerPerfil);
 
-// Editar datos del usuario autenticado
+// Editar perfil
 router.put("/editar", verifyUsuarioToken, editarPerfil);
 
-// Eliminar usuario autenticado
+// Eliminar usuario
 router.delete("/eliminar", verifyUsuarioToken, eliminarUsuario);
 
 export default router;
