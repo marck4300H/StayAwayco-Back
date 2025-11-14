@@ -138,3 +138,76 @@ export const loginUsuario = async (req, res) => {
     });
   }
 };
+export const obtenerPerfil = async (req, res) => {
+  try {
+    const numero_documento = req.usuario.numero_documento;
+
+    const { data: usuario, error } = await supabaseAdmin
+      .from("usuarios")
+      .select("*")
+      .eq("numero_documento", numero_documento)
+      .single();
+
+    if (error || !usuario) {
+      return res.status(404).json({ success: false, message: "Usuario no encontrado." });
+    }
+
+    res.status(200).json({ success: true, usuario });
+  } catch (err) {
+    console.error("❌ Error al obtener perfil:", err);
+    res.status(500).json({ success: false, message: "Error del servidor." });
+  }
+};
+export const editarPerfil = async (req, res) => {
+  try {
+    const numero_documento = req.usuario.numero_documento;
+
+    const camposActualizables = {
+      tipo_documento: req.body.tipo_documento,
+      nombres: req.body.nombres,
+      apellidos: req.body.apellidos,
+      correo_electronico: req.body.correo_electronico,
+      telefono: req.body.telefono,
+      direccion: req.body.direccion,
+      ciudad: req.body.ciudad,
+      departamento: req.body.departamento,
+    };
+
+    const { data, error } = await supabaseAdmin
+      .from("usuarios")
+      .update(camposActualizables)
+      .eq("numero_documento", numero_documento)
+      .select();
+
+    if (error) throw error;
+
+    res.status(200).json({
+      success: true,
+      message: "Perfil actualizado correctamente.",
+      usuario: data[0],
+    });
+  } catch (err) {
+    console.error("❌ Error al editar perfil:", err);
+    res.status(500).json({ success: false, message: "Error al actualizar perfil." });
+  }
+};
+export const eliminarUsuario = async (req, res) => {
+  try {
+    const numero_documento = req.usuario.numero_documento;
+
+    const { error } = await supabaseAdmin
+      .from("usuarios")
+      .delete()
+      .eq("numero_documento", numero_documento);
+
+    if (error) throw error;
+
+    res.status(200).json({
+      success: true,
+      message: "Usuario eliminado correctamente.",
+    });
+  } catch (err) {
+    console.error("❌ Error al eliminar usuario:", err);
+    res.status(500).json({ success: false, message: "Error al eliminar usuario." });
+  }
+};
