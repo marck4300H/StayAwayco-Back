@@ -78,10 +78,12 @@ export const registrarUsuario = async (req, res) => {
   }
 };
 
-// 🔐 Login de usuario
+// 🔐 Login de usuario - ACTUALIZADO
 export const loginUsuario = async (req, res) => {
   try {
     const { correo_electronico, password } = req.body;
+
+    console.log("🔐 Intentando login de usuario:", { correo_electronico });
 
     const { data: usuario, error } = await supabaseAdmin
       .from("usuarios")
@@ -90,6 +92,7 @@ export const loginUsuario = async (req, res) => {
       .single();
 
     if (error || !usuario) {
+      console.log("❌ Usuario no encontrado");
       return res.status(401).json({
         success: false,
         message: "Correo electrónico o contraseña incorrectos.",
@@ -98,25 +101,31 @@ export const loginUsuario = async (req, res) => {
 
     const passwordValida = await bcrypt.compare(password, usuario.password);
     if (!passwordValida) {
+      console.log("❌ Contraseña incorrecta para usuario");
       return res.status(401).json({
         success: false,
         message: "Correo electrónico o contraseña incorrectos.",
       });
     }
 
+    // ✅ Generar token JWT para usuario normal
     const token = jwt.sign(
       {
         numero_documento: usuario.numero_documento,
         correo_electronico: usuario.correo_electronico,
+        userType: "user" // ✅ Identificar como usuario normal
       },
       JWT_SECRET,
       { expiresIn: "6h" }
     );
 
+    console.log("✅ Login de usuario exitoso:", usuario.correo_electronico);
+
     res.status(200).json({
       success: true,
       message: "Inicio de sesión exitoso.",
       token,
+      userType: "user",
       usuario: {
         numero_documento: usuario.numero_documento,
         nombres: usuario.nombres,
@@ -126,9 +135,14 @@ export const loginUsuario = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error al iniciar sesión:", err);
-    res.status(500).json({ success: false, message: "Error en el servidor." });
+    res.status(500).json({ 
+      success: false, 
+      message: "Error en el servidor." 
+    });
   }
 };
+
+// ... el resto de las funciones permanecen igual
 
 // Obtener perfil
 export const obtenerPerfil = async (req, res) => {
