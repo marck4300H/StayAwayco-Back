@@ -33,7 +33,6 @@ export const registrarUsuario = async (req, res) => {
         .json({ success: false, message: "Faltan campos obligatorios." });
     }
 
-    // Verificar si ya existe el usuario
     const { data: existingUser } = await supabaseAdmin
       .from("usuarios")
       .select("*")
@@ -62,7 +61,6 @@ export const registrarUsuario = async (req, res) => {
           ciudad,
           departamento,
           password: hashedPassword,
-          numeros_comprados: [],
         },
       ])
       .select();
@@ -85,7 +83,6 @@ export const loginUsuario = async (req, res) => {
   try {
     const { correo_electronico, password } = req.body;
 
-    // 1️⃣ Buscar usuario por correo
     const { data: usuario, error } = await supabaseAdmin
       .from("usuarios")
       .select("*")
@@ -99,7 +96,6 @@ export const loginUsuario = async (req, res) => {
       });
     }
 
-    // 2️⃣ Comparar contraseñas
     const passwordValida = await bcrypt.compare(password, usuario.password);
     if (!passwordValida) {
       return res.status(401).json({
@@ -108,7 +104,6 @@ export const loginUsuario = async (req, res) => {
       });
     }
 
-    // 3️⃣ Generar token
     const token = jwt.sign(
       {
         numero_documento: usuario.numero_documento,
@@ -118,7 +113,6 @@ export const loginUsuario = async (req, res) => {
       { expiresIn: "6h" }
     );
 
-    // 4️⃣ Enviar respuesta
     res.status(200).json({
       success: true,
       message: "Inicio de sesión exitoso.",
@@ -132,12 +126,11 @@ export const loginUsuario = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error al iniciar sesión:", err);
-    res.status(500).json({
-      success: false,
-      message: "Error en el servidor.",
-    });
+    res.status(500).json({ success: false, message: "Error en el servidor." });
   }
 };
+
+// Obtener perfil
 export const obtenerPerfil = async (req, res) => {
   try {
     const numero_documento = req.usuario.numero_documento;
@@ -158,6 +151,8 @@ export const obtenerPerfil = async (req, res) => {
     res.status(500).json({ success: false, message: "Error del servidor." });
   }
 };
+
+// Editar perfil
 export const editarPerfil = async (req, res) => {
   try {
     const numero_documento = req.usuario.numero_documento;
@@ -191,6 +186,8 @@ export const editarPerfil = async (req, res) => {
     res.status(500).json({ success: false, message: "Error al actualizar perfil." });
   }
 };
+
+// Eliminar usuario
 export const eliminarUsuario = async (req, res) => {
   try {
     const numero_documento = req.usuario.numero_documento;
@@ -202,10 +199,7 @@ export const eliminarUsuario = async (req, res) => {
 
     if (error) throw error;
 
-    res.status(200).json({
-      success: true,
-      message: "Usuario eliminado correctamente.",
-    });
+    res.status(200).json({ success: true, message: "Usuario eliminado correctamente." });
   } catch (err) {
     console.error("❌ Error al eliminar usuario:", err);
     res.status(500).json({ success: false, message: "Error al eliminar usuario." });

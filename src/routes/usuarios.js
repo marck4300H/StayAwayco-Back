@@ -1,4 +1,3 @@
-// routes/usuariosRoutes.js
 import express from "express";
 import {
   registrarUsuario,
@@ -18,13 +17,13 @@ router.post("/registrar", registrarUsuario);
 // Login
 router.post("/login", loginUsuario);
 
-// Obtener perfil
+// Obtener perfil (usuario autenticado)
 router.get("/perfil", verifyUsuarioToken, obtenerPerfil);
 
-// Editar perfil
+// Editar perfil (usuario autenticado)
 router.put("/editar", verifyUsuarioToken, editarPerfil);
 
-// Eliminar usuario
+// Eliminar usuario (usuario autenticado)
 router.delete("/eliminar", verifyUsuarioToken, eliminarUsuario);
 
 export default router;

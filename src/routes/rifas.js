@@ -1,21 +1,10 @@
 import express from "express";
-import { crearRifa, listarRifas, editarRifa, eliminarRifa, upload } from "../controllers/rifasController.js";
-import { verificarAdmin } from "../middleware/authAdmin.js";
-import { getRifaById } from "../controllers/rifasController.js";
+import { crearRifa, listarRifas, editarRifa, eliminarRifa, getRifaById, upload } from "../controllers/rifasController.js";
 
 const router = express.Router();
-
-// Crear
-router.post("/crear", verificarAdmin, upload.single("imagen"), crearRifa);
-
-// Listar
-router.get("/listar", listarRifas);
+router.post("/crear", upload.single("imagen"), crearRifa);
+router.get("/", listarRifas);
 router.get("/:id", getRifaById);
-
-// Editar
-router.put("/editar/:id", verificarAdmin, upload.single("imagen"), editarRifa);
-
-// Eliminar
-router.delete("/eliminar/:id", verificarAdmin, eliminarRifa);
-
+router.put("/editar/:id", upload.single("imagen"), editarRifa);
+router.delete("/eliminar/:id", eliminarRifa);
 export default router;

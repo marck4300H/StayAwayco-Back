@@ -1,105 +1,134 @@
-// controllers/comprasController.js
-import { supabase } from "../../supabaseClient.js";
+import { supabaseAdmin } from "../../supabaseAdminClient.js";
 
+/**
+ * Comprar números de una rifa
+ */
 export const comprarNumeros = async (req, res) => {
   const { rifaId } = req.params;
   const { cantidad } = req.body;
-  const usuario = req.usuario; // viene del middleware verifyUsuarioToken
+  const usuario = req.usuario;
 
   if (!usuario) {
-    return res.status(401).json({ error: "Usuario no autenticado." });
+    return res.status(401).json({ success: false, message: "Usuario no autenticado." });
   }
 
-  if (!cantidad || cantidad < 5) {
-    return res.status(400).json({ error: "La cantidad mínima es 5 números." });
+  if (!cantidad || cantidad < 1) {
+    return res.status(400).json({ success: false, message: "La cantidad mínima es 1 número." });
   }
 
   try {
-    // 1️⃣ Obtener arrays de la rifa
-    const { data: arraysNumeros, error: errorArrays } = await supabase
+    // Obtener números disponibles
+    const { data: numerosDisponibles, error } = await supabaseAdmin
       .from("numeros")
       .select("*")
-      .eq("rifa_id", rifaId);
+      .eq("rifa_id", rifaId)
+      .is("comprado_por", null)
+      .limit(cantidad);
 
-    if (errorArrays) throw errorArrays;
-    if (!arraysNumeros || arraysNumeros.length === 0) {
-      return res.status(400).json({ error: "No hay números disponibles." });
+    if (error) throw error;
+
+    if (!numerosDisponibles || numerosDisponibles.length < cantidad) {
+      return res.status(400).json({ success: false, message: "No hay suficientes números disponibles." });
     }
 
-    // 2️⃣ Obtener datos completos del usuario
-    const { data: usuarioCompleto, error: errorUsuario } = await supabase
-      .from("usuarios")
-      .select("*")
-      .eq("numero_documento", usuario.numero_documento)
-      .single();
+    const numerosIds = numerosDisponibles.map((n) => n.id);
+    const numerosSeleccionados = numerosDisponibles.map((n) => n.numero);
 
-    if (errorUsuario || !usuarioCompleto) {
-      return res.status(400).json({ error: "Usuario no encontrado." });
-    }
+    // Marcar como comprados
+    const { error: actualizarError } = await supabaseAdmin
+      .from("numeros")
+      .update({ comprado_por: usuario.numero_documento })
+      .in("id", numerosIds);
 
-    const numerosSeleccionados = [];
-    const arraysMap = new Map();
+    if (actualizarError) throw actualizarError;
 
-    // Inicializar arraysMap con copia de numeros_array
-    arraysNumeros.forEach(arr => arraysMap.set(arr.id, [...arr.numeros_array]));
+    // Guardar en tabla numeros_usuario
+    const numerosUsuario = numerosSeleccionados.map((numero) => ({
+      numero,
+      numero_documento: usuario.numero_documento,
+      rifa_id: rifaId,
+    }));
 
-    // 3️⃣ Selección de números aleatoria
-    for (let i = 0; i < cantidad; i++) {
-      // Filtrar arrays que aún tengan números
-      const arraysDisponibles = Array.from(arraysMap.entries()).filter(
-        ([id, numerosArr]) => numerosArr.length > 0
-      );
+    const { error: insertError } = await supabaseAdmin
+      .from("numeros_usuario")
+      .insert(numerosUsuario);
 
-      if (arraysDisponibles.length === 0) {
-        return res.status(400).json({ error: "No hay suficientes números disponibles." });
-      }
+    if (insertError) throw insertError;
 
-      // Elegir array al azar
-      const randomArrayIdx = Math.floor(Math.random() * arraysDisponibles.length);
-      const [arrayId, numerosArray] = arraysDisponibles[randomArrayIdx];
-
-      // Elegir número al azar dentro del array
-      const randomNumeroIdx = Math.floor(Math.random() * numerosArray.length);
-      const numero = numerosArray[randomNumeroIdx];
-
-      // Guardarlo en seleccionados
-      numerosSeleccionados.push(numero);
-
-      // Eliminar número del array
-      numerosArray.splice(randomNumeroIdx, 1);
-
-      // Actualizar mapa
-      arraysMap.set(arrayId, numerosArray);
-    }
-
-    // 4️⃣ Actualizar DB una sola vez por cada array modificado
-    for (const [id, numerosArray] of arraysMap.entries()) {
-      await supabase
-        .from("numeros")
-        .update({ numeros_array: numerosArray })
-        .eq("id", id);
-    }
-
-    // 5️⃣ Actualizar numeros_comprados del usuario correctamente
-    const numerosCompradosUsuario = usuarioCompleto.numeros_comprados || [];
-
-    // Agregar los números seleccionados uno a uno
-    const numerosActualizados = [...numerosCompradosUsuario, ...numerosSeleccionados];
-
-    // Guardar en la base de datos
-    const { error: errorUser } = await supabase
-      .from("usuarios")
-      .update({ numeros_comprados: numerosActualizados })
-      .eq("numero_documento", usuario.numero_documento);
-
-    if (errorUser) throw errorUser;
-
-    res.status(200).json({
-      mensaje: "Compra exitosa",
+    return res.json({
+      success: true,
+      message: "Compra exitosa",
       numeros: numerosSeleccionados,
     });
+  } catch (err) {
+    console.error("❌ Error al comprar números:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
 
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+/**
+ * Obtener números comprados por el usuario - COMPLETAMENTE CORREGIDO
+ */
+export const getComprasPorUsuario = async (req, res) => {
+  try {
+    const { cedula } = req.params;
+    const usuario = req.usuario;
+
+    // ✅ VERIFICAR QUE EL USUARIO SOLO PUEDA VER SUS PROPIAS COMPRAS
+    if (usuario.numero_documento !== cedula) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "No tienes permisos para ver estas compras." 
+      });
+    }
+
+    console.log(`📋 Buscando compras para cédula: ${cedula}`);
+
+    // ✅ Obtener números comprados del usuario CON INFORMACIÓN DE RIFAS
+    const { data: numeros, error } = await supabaseAdmin
+      .from("numeros_usuario")
+      .select(`
+        numero,
+        rifa_id,
+        rifas (
+          titulo
+        )
+      `)
+      .eq("numero_documento", cedula);
+
+    if (error) {
+      console.error("❌ Error en consulta Supabase:", error);
+      throw error;
+    }
+
+    console.log(`📊 Números encontrados: ${numeros ? numeros.length : 0}`);
+
+    if (!numeros || numeros.length === 0) {
+      return res.json({ 
+        success: true, 
+        numeros: [] 
+      });
+    }
+
+    // ✅ Construir respuesta simplificada
+    const respuesta = numeros.map((n) => ({
+      numero: n.numero,
+      rifa_id: n.rifa_id,
+      titulo_rifa: n.rifas?.titulo || "Rifa no encontrada",
+    }));
+
+    console.log("✅ Respuesta de compras enviada:", respuesta.length, "números");
+
+    return res.json({ 
+      success: true, 
+      numeros: respuesta 
+    });
+
+  } catch (err) {
+    console.error("❌ Error getComprasPorUsuario:", err);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Error interno del servidor al obtener compras." 
+    });
   }
 };
