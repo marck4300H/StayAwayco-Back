@@ -6,7 +6,7 @@ import rifasRoutes from "./src/routes/rifas.js";
 import numerosRoutes from "./src/routes/numeros.js";
 import adminRoutes from "./src/routes/admin.js";
 import usuariosRoutes from "./src/routes/usuarios.js";
-
+import comprasRoutes from "./src/routes/compras.js"
 
 dotenv.config();
 const app = express();
@@ -37,6 +37,7 @@ app.use("/api/rifas", rifasRoutes);
 app.use("/api/numeros", numerosRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/usuarios", usuariosRoutes);
+app.use("/api/comprar", comprasRoutes);
 
 
 
