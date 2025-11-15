@@ -4,73 +4,81 @@ import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// 🧾 Registrar nuevo usuario
+// 🧾 Registrar nuevo usuario - SIMPLIFICADO
 export const registrarUsuario = async (req, res) => {
   try {
     const {
-      numero_documento,
-      tipo_documento,
       nombres,
       apellidos,
       correo_electronico,
       telefono,
-      direccion,
-      ciudad,
-      departamento,
       password,
     } = req.body;
 
-    if (
-      !numero_documento ||
-      !tipo_documento ||
-      !nombres ||
-      !apellidos ||
-      !correo_electronico ||
-      !password
-    ) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Faltan campos obligatorios." });
+    // ✅ Validación mínima para registro rápido
+    if (!nombres || !apellidos || !correo_electronico || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Faltan campos obligatorios: nombres, apellidos, correo y contraseña." 
+      });
     }
 
+    // ✅ Verificar si el correo ya existe
     const { data: existingUser } = await supabaseAdmin
       .from("usuarios")
-      .select("*")
-      .eq("numero_documento", numero_documento)
+      .select("id")
+      .eq("correo_electronico", correo_electronico)
       .maybeSingle();
 
     if (existingUser) {
-      return res
-        .status(409)
-        .json({ success: false, message: "El usuario ya está registrado." });
+      return res.status(409).json({ 
+        success: false, 
+        message: "El correo electrónico ya está registrado." 
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // ✅ Insertar solo datos esenciales
     const { data, error } = await supabaseAdmin
       .from("usuarios")
       .insert([
         {
-          numero_documento,
-          tipo_documento,
           nombres,
           apellidos,
           correo_electronico,
-          telefono,
-          direccion,
-          ciudad,
-          departamento,
+          telefono: telefono || null,
           password: hashedPassword,
-        },
+          fecha_registro: new Date(),
+          // numero_documento, direccion, etc. se llenarán después
+        }
       ])
       .select();
 
     if (error) throw error;
 
+    // ✅ Generar token con el NUEVO id
+    const token = jwt.sign(
+      {
+        id: data[0].id, // ← NUEVO: usar id
+        correo_electronico: data[0].correo_electronico,
+        userType: "user"
+      },
+      JWT_SECRET,
+      { expiresIn: "6h" }
+    );
+
     res.status(201).json({
       success: true,
       message: "Usuario registrado exitosamente.",
-      usuario: data[0],
+      token,
+      userType: "user",
+      usuario: {
+        id: data[0].id,
+        nombres: data[0].nombres,
+        apellidos: data[0].apellidos,
+        correo_electronico: data[0].correo_electronico,
+      },
     });
   } catch (err) {
     console.error("❌ Error al registrar usuario:", err);
@@ -108,12 +116,13 @@ export const loginUsuario = async (req, res) => {
       });
     }
 
-    // ✅ Generar token JWT para usuario normal
+    // ✅ Generar token JWT con el NUEVO id
     const token = jwt.sign(
       {
-        numero_documento: usuario.numero_documento,
+        id: usuario.id, // ← NUEVO: usar id
+        numero_documento: usuario.numero_documento, // ← Mantener para compatibilidad
         correo_electronico: usuario.correo_electronico,
-        userType: "user" // ✅ Identificar como usuario normal
+        userType: "user"
       },
       JWT_SECRET,
       { expiresIn: "6h" }
@@ -127,6 +136,7 @@ export const loginUsuario = async (req, res) => {
       token,
       userType: "user",
       usuario: {
+        id: usuario.id, // ← NUEVO
         numero_documento: usuario.numero_documento,
         nombres: usuario.nombres,
         apellidos: usuario.apellidos,
@@ -142,23 +152,54 @@ export const loginUsuario = async (req, res) => {
   }
 };
 
-// ... el resto de las funciones permanecen igual
-
-// Obtener perfil
+// Obtener perfil - ACTUALIZADO
+// Obtener perfil - COMPATIBILIDAD COMPLETA
 export const obtenerPerfil = async (req, res) => {
+  console.log("🎯 EJECUTANDO obtenerPerfil - Usuario:", req.usuario);
+  
   try {
-    const numero_documento = req.usuario.numero_documento;
-
-    const { data: usuario, error } = await supabaseAdmin
-      .from("usuarios")
-      .select("*")
-      .eq("numero_documento", numero_documento)
-      .single();
-
-    if (error || !usuario) {
-      return res.status(404).json({ success: false, message: "Usuario no encontrado." });
+    const usuarioReq = req.usuario;
+    
+    // ✅ COMPATIBILIDAD: Buscar por id (nuevo) O por numero_documento (antiguo)
+    let usuario;
+    let error;
+    
+    if (usuarioReq.id) {
+      // Usuario nuevo (con id)
+      console.log("🔍 Buscando usuario por ID:", usuarioReq.id);
+      const result = await supabaseAdmin
+        .from("usuarios")
+        .select("*")
+        .eq("id", usuarioReq.id)
+        .single();
+      usuario = result.data;
+      error = result.error;
+    } else if (usuarioReq.numero_documento) {
+      // Usuario antiguo (con numero_documento)
+      console.log("🔍 Buscando usuario por numero_documento:", usuarioReq.numero_documento);
+      const result = await supabaseAdmin
+        .from("usuarios")
+        .select("*")
+        .eq("numero_documento", usuarioReq.numero_documento)
+        .single();
+      usuario = result.data;
+      error = result.error;
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Identificador de usuario no válido." 
+      });
     }
 
+    if (error || !usuario) {
+      console.error("❌ Usuario no encontrado en BD:", usuarioReq);
+      return res.status(404).json({ 
+        success: false, 
+        message: "Usuario no encontrado." 
+      });
+    }
+
+    console.log("✅ Usuario encontrado:", usuario.correo_electronico);
     res.status(200).json({ success: true, usuario });
   } catch (err) {
     console.error("❌ Error al obtener perfil:", err);
@@ -166,13 +207,34 @@ export const obtenerPerfil = async (req, res) => {
   }
 };
 
-// Editar perfil
+// Editar perfil - ACTUALIZADO PARA COMPATIBILIDAD
 export const editarPerfil = async (req, res) => {
+  console.log("🎯 EJECUTANDO editarPerfil - Usuario:", req.usuario);
+  
   try {
-    const numero_documento = req.usuario.numero_documento;
+    const usuarioReq = req.usuario;
+    
+    // ✅ COMPATIBILIDAD: Usar id (nuevo) O numero_documento (antiguo)
+    let condicionBusqueda;
+    
+    if (usuarioReq.id) {
+      // Usuario nuevo (con id)
+      condicionBusqueda = { columna: "id", valor: usuarioReq.id };
+      console.log("✏️ Actualizando usuario por ID:", usuarioReq.id);
+    } else if (usuarioReq.numero_documento) {
+      // Usuario antiguo (con numero_documento)
+      condicionBusqueda = { columna: "numero_documento", valor: usuarioReq.numero_documento };
+      console.log("✏️ Actualizando usuario por numero_documento:", usuarioReq.numero_documento);
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Identificador de usuario no válido." 
+      });
+    }
 
     const camposActualizables = {
       tipo_documento: req.body.tipo_documento,
+      numero_documento: req.body.numero_documento,
       nombres: req.body.nombres,
       apellidos: req.body.apellidos,
       correo_electronico: req.body.correo_electronico,
@@ -180,16 +242,30 @@ export const editarPerfil = async (req, res) => {
       direccion: req.body.direccion,
       ciudad: req.body.ciudad,
       departamento: req.body.departamento,
+      actualizado_en: new Date()
     };
+
+    console.log("📝 Campos a actualizar:", camposActualizables);
 
     const { data, error } = await supabaseAdmin
       .from("usuarios")
       .update(camposActualizables)
-      .eq("numero_documento", numero_documento)
+      .eq(condicionBusqueda.columna, condicionBusqueda.valor)
       .select();
 
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Error actualizando usuario:", error);
+      throw error;
+    }
 
+    if (!data || data.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Usuario no encontrado para actualizar." 
+      });
+    }
+
+    console.log("✅ Perfil actualizado correctamente");
     res.status(200).json({
       success: true,
       message: "Perfil actualizado correctamente.",
@@ -201,19 +277,44 @@ export const editarPerfil = async (req, res) => {
   }
 };
 
-// Eliminar usuario
+// Eliminar usuario - ACTUALIZADO PARA COMPATIBILIDAD
 export const eliminarUsuario = async (req, res) => {
+  console.log("🎯 EJECUTANDO eliminarUsuario - Usuario:", req.usuario);
+  
   try {
-    const numero_documento = req.usuario.numero_documento;
+    const usuarioReq = req.usuario;
+    
+    // ✅ COMPATIBILIDAD: Usar id (nuevo) O numero_documento (antiguo)
+    let condicionBusqueda;
+    
+    if (usuarioReq.id) {
+      condicionBusqueda = { columna: "id", valor: usuarioReq.id };
+      console.log("🗑️ Eliminando usuario por ID:", usuarioReq.id);
+    } else if (usuarioReq.numero_documento) {
+      condicionBusqueda = { columna: "numero_documento", valor: usuarioReq.numero_documento };
+      console.log("🗑️ Eliminando usuario por numero_documento:", usuarioReq.numero_documento);
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Identificador de usuario no válido." 
+      });
+    }
 
     const { error } = await supabaseAdmin
       .from("usuarios")
       .delete()
-      .eq("numero_documento", numero_documento);
+      .eq(condicionBusqueda.columna, condicionBusqueda.valor);
 
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Error eliminando usuario:", error);
+      throw error;
+    }
 
-    res.status(200).json({ success: true, message: "Usuario eliminado correctamente." });
+    console.log("✅ Usuario eliminado correctamente");
+    res.status(200).json({ 
+      success: true, 
+      message: "Usuario eliminado correctamente." 
+    });
   } catch (err) {
     console.error("❌ Error al eliminar usuario:", err);
     res.status(500).json({ success: false, message: "Error al eliminar usuario." });

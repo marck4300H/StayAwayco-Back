@@ -11,6 +11,8 @@ import { verifyUsuarioToken } from "../middleware/authUsuarios.js";
 
 const router = express.Router();
 
+console.log("✅ usuariosRoutes cargado correctamente");
+
 // Registrar usuario
 router.post("/registrar", registrarUsuario);
 
@@ -18,7 +20,10 @@ router.post("/registrar", registrarUsuario);
 router.post("/login", loginUsuario);
 
 // Obtener perfil (usuario autenticado)
-router.get("/perfil", verifyUsuarioToken, obtenerPerfil);
+router.get("/perfil", verifyUsuarioToken, (req, res, next) => {
+  console.log("🎯 Llegó a la ruta /perfil");
+  next();
+}, obtenerPerfil);
 
 // Editar perfil (usuario autenticado)
 router.put("/editar", verifyUsuarioToken, editarPerfil);

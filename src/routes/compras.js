@@ -4,8 +4,8 @@ import { verifyUsuarioToken } from "../middleware/authUsuarios.js";
 
 const router = Router();
 
-// ✅ RUTAS CORREGIDAS - ambas protegidas con autenticación
+// ✅ RUTAS ACTUALIZADAS
 router.post("/crear/:rifaId", verifyUsuarioToken, comprarNumeros);
-router.get("/usuario/:cedula", verifyUsuarioToken, getComprasPorUsuario);
+router.get("/usuario", verifyUsuarioToken, getComprasPorUsuario); // ← Cambiado: ya no necesita parámetro
 
 export default router;

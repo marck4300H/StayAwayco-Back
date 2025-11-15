@@ -1,14 +1,14 @@
 import { supabaseAdmin } from "../../supabaseAdminClient.js";
 
 /**
- * Comprar números de una rifa - CORREGIDO CON VALIDACIÓN DE CANTIDAD MÍNIMA
+ * Comprar números de una rifa - CORREGIDO PARA NUEVA BD
  */
 export const comprarNumeros = async (req, res) => {
   const { rifaId } = req.params;
   const { cantidad } = req.body;
 
-  // ✅ VERIFICACIÓN ROBUSTA DEL USUARIO
-  if (!req.usuario || !req.usuario.numero_documento) {
+  // ✅ VERIFICACIÓN ACTUALIZADA PARA NUEVA BD
+  if (!req.usuario || (!req.usuario.id && !req.usuario.numero_documento)) {
     console.error('❌ Usuario no autenticado:', req.usuario);
     return res.status(401).json({ 
       success: false, 
@@ -17,12 +17,14 @@ export const comprarNumeros = async (req, res) => {
   }
 
   const usuario = req.usuario;
+  const userId = usuario.id;
   const numeroDocumento = usuario.numero_documento;
 
-  console.log(`🛒 Iniciando compra para usuario ${numeroDocumento}:`, {
+  console.log(`🛒 Iniciando compra para usuario:`, {
+    userId,
+    numeroDocumento,
     rifaId,
-    cantidad,
-    usuario: usuario
+    cantidad
   });
 
   // ✅ VALIDACIÓN DE CANTIDAD MÍNIMA (5 números)
@@ -33,7 +35,7 @@ export const comprarNumeros = async (req, res) => {
     });
   }
 
-  // ✅ VALIDACIÓN DE CANTIDAD MÁXIMA (opcional, puedes ajustar)
+  // ✅ VALIDACIÓN DE CANTIDAD MÁXIMA
   if (cantidad > 100) {
     return res.status(400).json({ 
       success: false, 
@@ -42,7 +44,7 @@ export const comprarNumeros = async (req, res) => {
   }
 
   try {
-    // ✅ PRIMERO: Obtener información de la rifa para saber el rango
+    // ✅ PRIMERO: Obtener información de la rifa
     const { data: rifa, error: rifaError } = await supabaseAdmin
       .from("rifas")
       .select("id, titulo, cantidad_numeros")
@@ -95,15 +97,7 @@ export const comprarNumeros = async (req, res) => {
       });
     }
 
-    // ✅ VERIFICAR el rango real de números disponibles
-    if (allNumerosDisponibles.length > 0) {
-      const numerosMin = Math.min(...allNumerosDisponibles.map(n => n.numero));
-      const numerosMax = Math.max(...allNumerosDisponibles.map(n => n.numero));
-      console.log(`📊 Rango REAL de números disponibles: ${numerosMin} a ${numerosMax}`);
-      console.log(`🎯 Rango ESPERADO de la rifa: 0 a ${rifa.cantidad_numeros - 1}`);
-    }
-
-    // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA de TODO el rango disponible
+    // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA
     const mezclarArray = (array) => {
       const shuffled = [...array];
       for (let i = shuffled.length - 1; i > 0; i--) {
@@ -119,15 +113,13 @@ export const comprarNumeros = async (req, res) => {
     const numerosIds = numerosSeleccionados.map((n) => n.id);
     const numerosParaUsuario = numerosSeleccionados.map((n) => n.numero).sort((a, b) => a - b);
 
-    // ✅ Calcular estadísticas de la selección
+    // ✅ Calcular estadísticas
     const minSeleccionado = Math.min(...numerosParaUsuario);
     const maxSeleccionado = Math.max(...numerosParaUsuario);
-    const rangoSeleccionado = maxSeleccionado - minSeleccionado;
 
-    console.log(`🎲 Números seleccionados ALEATORIAMENTE para ${numeroDocumento}:`, {
+    console.log(`🎲 Números seleccionados ALEATORIAMENTE:`, {
       cantidad: numerosParaUsuario.length,
       rango: `${minSeleccionado} a ${maxSeleccionado}`,
-      amplitud_rango: rangoSeleccionado,
       numeros: numerosParaUsuario
     });
 
@@ -141,11 +133,32 @@ export const comprarNumeros = async (req, res) => {
       });
     }
 
-    // Marcar como comprados en la tabla 'numeros'
-    console.log(`🔐 Marcando ${cantidad} números como comprados por ${numeroDocumento}...`);
+    // ✅ OBTENER NUMERO_DOCUMENTO SI NO VIENE EN EL TOKEN (para usuarios nuevos)
+    let userDoc = numeroDocumento;
+    if (!userDoc && userId) {
+      const { data: userData, error: userError } = await supabaseAdmin
+        .from("usuarios")
+        .select("numero_documento")
+        .eq("id", userId)
+        .single();
+      
+      if (userError || !userData) {
+        return res.status(404).json({ 
+          success: false, 
+          message: "Usuario no encontrado." 
+        });
+      }
+      userDoc = userData.numero_documento;
+    }
+
+    // ✅ Marcar como comprados en la tabla 'numeros' - ACTUALIZADO
+    console.log(`🔐 Marcando ${cantidad} números como comprados...`);
     const { error: actualizarError } = await supabaseAdmin
       .from("numeros")
-      .update({ comprado_por: numeroDocumento })
+      .update({ 
+        comprado_por: userDoc, // ← Mantener compatibilidad
+        usuario_id: userId      // ← NUEVO: guardar relación con id
+      })
       .in("id", numerosIds);
 
     if (actualizarError) {
@@ -153,14 +166,15 @@ export const comprarNumeros = async (req, res) => {
       throw actualizarError;
     }
 
-    // ✅ Guardar en tabla numeros_usuario CON EL NÚMERO DE DOCUMENTO CORRECTO
+    // ✅ Guardar en tabla numeros_usuario - ACTUALIZADO
     const numerosUsuario = numerosParaUsuario.map((numero) => ({
       numero,
-      numero_documento: numeroDocumento, // ✅ Usar la variable correcta
+      numero_documento: userDoc, // ← Mantener compatibilidad
+      usuario_id: userId,        // ← NUEVO: guardar relación con id
       rifa_id: rifaId,
     }));
 
-    console.log(`💾 Guardando ${numerosUsuario.length} números en numeros_usuario para usuario ${numeroDocumento}`);
+    console.log(`💾 Guardando ${numerosUsuario.length} números en numeros_usuario`);
 
     const { error: insertError } = await supabaseAdmin
       .from("numeros_usuario")
@@ -171,8 +185,8 @@ export const comprarNumeros = async (req, res) => {
       throw insertError;
     }
 
-    console.log(`✅ Compra completada exitosamente para usuario ${numeroDocumento}`);
-    console.log(`📈 Resumen: ${cantidad} números aleatorios de "${rifa.titulo}" (0-${rifa.cantidad_numeros - 1})`);
+    console.log(`✅ Compra completada exitosamente`);
+    console.log(`📈 Resumen: ${cantidad} números aleatorios de "${rifa.titulo}"`);
 
     return res.json({
       success: true,
@@ -193,53 +207,51 @@ export const comprarNumeros = async (req, res) => {
 };
 
 /**
- * Obtener números comprados por el usuario - CORREGIDO SIN LÍMITES
+ * Obtener números comprados por el usuario - CORREGIDO PARA NUEVA BD
  */
 export const getComprasPorUsuario = async (req, res) => {
   try {
-    const { cedula } = req.params;
     const usuario = req.usuario;
 
-    // ✅ VERIFICAR QUE EL USUARIO SOLO PUEDA VER SUS PROPIAS COMPRAS
-    if (usuario.numero_documento !== cedula) {
-      return res.status(403).json({ 
+    // ✅ VERIFICACIÓN ACTUALIZADA
+    if (!usuario || (!usuario.id && !usuario.numero_documento)) {
+      return res.status(401).json({ 
         success: false, 
-        message: "No tienes permisos para ver estas compras." 
+        message: "Usuario no autenticado." 
       });
     }
 
-    console.log(`📋 Buscando TODAS las compras para cédula: ${cedula}`);
+    console.log(`📋 Buscando compras para usuario:`, usuario);
 
-    // ✅ CONSULTA CORREGIDA - Obtener TODOS los números sin límite
     let allNumerosUsuario = [];
-    let from = 0;
-    const batchSize = 1000;
-    let hasMore = true;
-
-    // ✅ Obtener datos en lotes para evitar límites de Supabase
-    while (hasMore) {
-      const { data: batch, error: numerosError } = await supabaseAdmin
+    
+    // ✅ BUSCAR POR USUARIO_ID (prioritario para nuevos usuarios)
+    if (usuario.id) {
+      const { data: byUserId, error: error1 } = await supabaseAdmin
         .from("numeros_usuario")
         .select("numero, rifa_id")
-        .eq("numero_documento", cedula)
-        .order("numero", { ascending: true })
-        .range(from, from + batchSize - 1);
+        .eq("usuario_id", usuario.id)
+        .order("numero", { ascending: true });
 
-      if (numerosError) {
-        console.error("❌ Error obteniendo números_usuario:", numerosError);
-        throw numerosError;
-      }
-
-      if (batch && batch.length > 0) {
-        allNumerosUsuario = [...allNumerosUsuario, ...batch];
-        from += batchSize;
-        console.log(`📦 Lote obtenido: ${batch.length} números. Total acumulado: ${allNumerosUsuario.length}`);
-      } else {
-        hasMore = false;
+      if (!error1 && byUserId) {
+        allNumerosUsuario = byUserId;
+        console.log(`📊 Encontrados ${allNumerosUsuario.length} números por usuario_id`);
       }
     }
 
-    console.log(`📊 TOTAL números encontrados en numeros_usuario:`, allNumerosUsuario.length);
+    // ✅ SI NO ENCONTRÓ POR ID, BUSCAR POR NUMERO_DOCUMENTO (compatibilidad)
+    if (allNumerosUsuario.length === 0 && usuario.numero_documento) {
+      const { data: byDoc, error: error2 } = await supabaseAdmin
+        .from("numeros_usuario")
+        .select("numero, rifa_id")
+        .eq("numero_documento", usuario.numero_documento)
+        .order("numero", { ascending: true });
+
+      if (!error2 && byDoc) {
+        allNumerosUsuario = byDoc;
+        console.log(`📊 Encontrados ${allNumerosUsuario.length} números por numero_documento`);
+      }
+    }
 
     if (allNumerosUsuario.length === 0) {
       return res.json({ 
@@ -248,7 +260,7 @@ export const getComprasPorUsuario = async (req, res) => {
       });
     }
 
-    // ✅ Obtener información de las rifas por separado
+    // ✅ Obtener información de las rifas
     const rifaIds = [...new Set(allNumerosUsuario.map(item => item.rifa_id))];
     
     const { data: rifas, error: rifasError } = await supabaseAdmin
@@ -270,19 +282,7 @@ export const getComprasPorUsuario = async (req, res) => {
       };
     });
 
-    console.log(`🎯 RIFAS ENCONTRADAS:`, rifas);
-
-    // ✅ Contar números por rifa ANTES de construir la respuesta
-    const conteoPorRifa = {};
-    allNumerosUsuario.forEach(item => {
-      const rifaInfo = rifaMap[item.rifa_id];
-      const tituloRifa = rifaInfo?.titulo || "Rifa no encontrada";
-      conteoPorRifa[tituloRifa] = (conteoPorRifa[tituloRifa] || 0) + 1;
-    });
-
-    console.log(`🔢 CONTEOS REALES POR RIFA:`, conteoPorRifa);
-
-    // ✅ Construir respuesta CORREGIDA con TODOS los números
+    // ✅ Construir respuesta
     const respuesta = allNumerosUsuario.map((item) => {
       const rifaInfo = rifaMap[item.rifa_id];
       return {
@@ -293,22 +293,9 @@ export const getComprasPorUsuario = async (req, res) => {
       };
     });
 
-    console.log("✅ RESPUESTA FINAL DE COMPRAS - DATOS REALES:", {
+    console.log("✅ RESPUESTA FINAL DE COMPRAS:", {
       total_numeros: respuesta.length,
-      rifas_unicas: [...new Set(respuesta.map(r => r.titulo_rifa))],
-      numeros_por_rifa: conteoPorRifa
-    });
-
-    // ✅ Mostrar ejemplos de números por rifa con sus rangos
-    Object.keys(conteoPorRifa).forEach(rifa => {
-      const numerosDeEstaRifa = respuesta
-        .filter(item => item.titulo_rifa === rifa)
-        .slice(0, 5)
-        .map(item => item.numero);
-      const rifaInfo = rifas.find(r => r.titulo === rifa);
-      const rangoEsperado = rifaInfo ? `(0-${rifaInfo.cantidad_numeros - 1})` : '';
-      
-      console.log(`🎯 ${rifa} ${rangoEsperado}: ${conteoPorRifa[rifa]} números (ej: ${numerosDeEstaRifa.join(', ')})`);
+      rifas_unicas: [...new Set(respuesta.map(r => r.titulo_rifa))]
     });
 
     return res.json({ 
