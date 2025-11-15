@@ -31,6 +31,15 @@ export const crearRifa = async (req, res) => {
       });
     }
 
+    // ✅ VALIDAR QUE LA CANTIDAD SEA 10000 O 100000
+    const cantidad = parseInt(cantidad_numeros, 10);
+    if (cantidad !== 10000 && cantidad !== 100000) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "La cantidad de números debe ser 10,000 o 100,000." 
+      });
+    }
+
     const extension = path.extname(archivo.originalname);
     const filename = `${uuidv4()}${extension}`;
 
@@ -58,7 +67,7 @@ export const crearRifa = async (req, res) => {
       .insert([{ 
         titulo, 
         descripcion, 
-        cantidad_numeros: parseInt(cantidad_numeros, 10), 
+        cantidad_numeros: cantidad, 
         imagen_url: publicUrl 
       }])
       .select();
@@ -69,10 +78,10 @@ export const crearRifa = async (req, res) => {
     }
 
     const rifaId = rifaData[0].id;
-    console.log(`🎯 Rifa creada con ID: ${rifaId}. Generando ${cantidad_numeros} números...`);
+    console.log(`🎯 Rifa creada con ID: ${rifaId}. Generando ${cantidad} números...`);
 
-    // Crear números para la rifa en lotes para mejor performance
-    const totalNumeros = parseInt(cantidad_numeros, 10);
+    // ✅ GENERAR NÚMEROS FORMATEADOS CORRECTAMENTE
+    const totalNumeros = cantidad;
     const batchSize = 10000;
     const batches = Math.ceil(totalNumeros / batchSize);
 
@@ -80,11 +89,24 @@ export const crearRifa = async (req, res) => {
       const start = i * batchSize;
       const end = Math.min(start + batchSize, totalNumeros);
       
-      const numerosAGenerar = Array.from({ length: end - start }, (_, index) => ({
-        rifa_id: rifaId,
-        numero: start + index,
-        comprado_por: null
-      }));
+      const numerosAGenerar = Array.from({ length: end - start }, (_, index) => {
+        const numeroBase = start + index;
+        // ✅ FORMATEAR CON CEROS A LA IZQUIERDA SEGÚN LA CANTIDAD
+        let numeroFormateado;
+        if (cantidad === 10000) {
+          // Para 10,000 números: 0000 a 9999 (4 dígitos)
+          numeroFormateado = numeroBase.toString().padStart(4, '0');
+        } else {
+          // Para 100,000 números: 00000 a 99999 (5 dígitos)
+          numeroFormateado = numeroBase.toString().padStart(5, '0');
+        }
+        
+        return {
+          rifa_id: rifaId,
+          numero: numeroFormateado, // ← Guardar como string formateado
+          comprado_por: null
+        };
+      });
 
       const { error: numerosError } = await supabaseAdmin
         .from("numeros")
@@ -193,6 +215,15 @@ export const editarRifa = async (req, res) => {
       });
     }
 
+    // ✅ VALIDAR QUE LA CANTIDAD SEA 10000 O 100000
+    const cantidad = parseInt(cantidad_numeros, 10);
+    if (cantidad !== 10000 && cantidad !== 100000) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "La cantidad de números debe ser 10,000 o 100,000." 
+      });
+    }
+
     let publicUrl;
     if (archivo) {
       console.log("📤 Nueva imagen proporcionada, subiendo...");
@@ -217,7 +248,7 @@ export const editarRifa = async (req, res) => {
     const updateData = {
       titulo,
       descripcion,
-      cantidad_numeros: parseInt(cantidad_numeros, 10),
+      cantidad_numeros: cantidad,
       ...(publicUrl && { imagen_url: publicUrl })
     };
 
