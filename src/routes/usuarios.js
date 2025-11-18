@@ -23,7 +23,7 @@ router.post("/login", loginUsuario);
 // Obtener perfil (usuario autenticado)
 router.get("/perfil", verifyUsuarioToken, obtenerPerfil);
 
-// Obtener números del usuario (usuario autenticado) - ✅ NUEVA RUTA
+// ✅ NUEVA RUTA: Obtener números del usuario (para el perfil)
 router.get("/numeros", verifyUsuarioToken, obtenerNumerosUsuario);
 
 // Editar perfil (usuario autenticado)

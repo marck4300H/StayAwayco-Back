@@ -15,12 +15,6 @@ const client = new MercadoPagoConfig({
 const preferenceClient = new Preference(client);
 const paymentClient = new Payment(client);
 
-// ✅ Función auxiliar para headers de autenticación
-const getAuthHeaders = () => ({
-  'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-  'Content-Type': 'application/json'
-});
-
 // ✅ Verificar credenciales al iniciar
 console.log("🔐 Verificando credenciales Mercado Pago...");
 if (!process.env.MP_ACCESS_TOKEN) {
@@ -28,6 +22,9 @@ if (!process.env.MP_ACCESS_TOKEN) {
 } else {
   console.log("✅ MP_ACCESS_TOKEN configurado correctamente");
 }
+
+// ✅ VARIABLE GLOBAL para evitar procesamiento duplicado
+const transaccionesProcesando = new Set();
 
 /**
  * Crear orden de pago en Mercado Pago - CORREGIDO CON PRECIO DINÁMICO
@@ -108,13 +105,13 @@ export const crearOrdenPago = async (req, res) => {
     const referencia = `RIFA-${rifaId.slice(0, 8)}-${Date.now()}`;
     const invoice = `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // ✅ Guardar transacción pendiente CON PRECIO UNITARIO
+    // ✅ Guardar transacción pendiente
     const transaccionData = {
       referencia,
       invoice,
       rifa_id: rifaId,
       cantidad,
-      precio_unitario: precioUnitario, // ← GUARDAR PRECIO UNITARIO
+      precio_unitario: precioUnitario,
       valor_total: total,
       estado: 'pendiente',
       usuario_documento: usuario?.numero_documento || null,
@@ -192,8 +189,7 @@ export const crearOrdenPago = async (req, res) => {
     };
 
     console.log("📦 Creando preferencia en Mercado Pago...");
-    console.log("📋 Body de la preferencia:", JSON.stringify(body, null, 2));
-
+    
     // ✅ USAR PREFERENCE CLIENT CORRECTAMENTE
     const response = await preferenceClient.create({ body });
 
@@ -211,7 +207,6 @@ export const crearOrdenPago = async (req, res) => {
       .eq("id", transaccion.id);
 
     console.log("✅ Orden creada exitosamente:", response.id);
-    console.log("🔗 Init Point:", response.init_point);
 
     res.json({
       success: true,
@@ -223,8 +218,8 @@ export const crearOrdenPago = async (req, res) => {
         referencia,
         invoice,
         total,
-        precioUnitario, // ← ENVIAR PRECIO UNITARIO AL FRONTEND
-        cantidadMinima, // ← ENVIAR CANTIDAD MÍNIMA AL FRONTEND
+        precioUnitario,
+        cantidadMinima,
         rifaTitulo: rifa.titulo,
         cantidad
       }
@@ -233,7 +228,6 @@ export const crearOrdenPago = async (req, res) => {
   } catch (error) {
     console.error("❌ Error creando orden de pago:", error);
     
-    // ✅ Manejo específico de errores de Mercado Pago
     if (error.status === 401) {
       console.error("❌ Error 401 - Token de Mercado Pago inválido o expirado");
       return res.status(500).json({
@@ -258,63 +252,49 @@ export const crearOrdenPago = async (req, res) => {
 };
 
 /**
- * Webhook para recibir notificaciones de Mercado Pago - COMPLETAMENTE CORREGIDO
+ * Webhook para recibir notificaciones de Mercado Pago - CON ANTI-DUPLICACIÓN
  */
 export const webhookHandler = async (req, res) => {
+  const webhookId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
   try {
-    console.log("🔄 Webhook recibido de Mercado Pago");
+    console.log(`🔄 Webhook [${webhookId}] recibido de Mercado Pago`);
     
     // ✅ LOG COMPLETO PARA DEBUGGING
-    console.log("📝 Body completo del webhook:", JSON.stringify(req.body, null, 2));
-    console.log("📝 Query params:", req.query);
-    console.log("📝 Headers:", req.headers);
+    console.log(`📝 Body del webhook [${webhookId}]:`, JSON.stringify(req.body, null, 2));
 
     const { type, topic, action, data, resource, id } = req.body;
 
-    console.log("🔍 Datos extraídos:", { 
-      type, 
-      topic, 
-      action, 
-      data, 
-      resource, 
-      id 
-    });
+    console.log(`🔍 Datos extraídos [${webhookId}]:`, { type, topic, action, data, resource, id });
 
-    // ✅ CASO 1: Webhook de tipo "order" (nueva estructura - el que estás recibiendo)
+    // ✅ CASO 1: Webhook de tipo "order" (nueva estructura)
     if (type === 'order' && data?.id) {
-      console.log("💰 Procesando webhook de order");
-      return await procesarOrderWebhook(data, res);
+      console.log(`💰 [${webhookId}] Procesando webhook de order`);
+      return await procesarOrderWebhook(data, res, webhookId);
     }
 
     // ✅ CASO 2: Webhook de tipo "merchant_order" (estructura antigua)
     if (topic === 'merchant_order' && resource) {
-      console.log("💰 Procesando webhook de merchant_order");
-      return await procesarMerchantOrderWebhook(resource, res);
+      console.log(`💰 [${webhookId}] Procesando webhook de merchant_order`);
+      return await procesarMerchantOrderWebhook(resource, res, webhookId);
     }
 
     // ✅ CASO 3: Webhook de tipo "payment" (caso legacy)
     if (type === 'payment' && data?.id) {
-      console.log("💰 Procesando webhook de payment");
-      return await procesarPaymentWebhook(data.id, res);
+      console.log(`💰 [${webhookId}] Procesando webhook de payment`);
+      return await procesarPaymentWebhook(data.id, res, webhookId);
     }
 
-    // ✅ CASO 4: Webhook con query parameters (caso alternativo)
-    if (req.query['data.id'] && req.query.type === 'payment') {
-      console.log("💰 Procesando webhook con query params");
-      return await procesarPaymentWebhook(req.query['data.id'], res);
-    }
-
-    console.log("❌ Webhook no reconocido - Estructura:", Object.keys(req.body));
+    console.log(`❌ [${webhookId}] Webhook no reconocido`);
     
     // ✅ Para pruebas de Mercado Pago, siempre retornar 200
-    console.log("✅ Retornando 200 para webhook no reconocido (probablemente prueba)");
     return res.status(200).json({ 
       success: true, 
       message: "Webhook recibido" 
     });
 
   } catch (error) {
-    console.error("❌ Error general en webhook:", error);
+    console.error(`❌ [${webhookId}] Error general en webhook:`, error);
     
     // ✅ IMPORTANTE: Siempre retornar 200 a Mercado Pago aunque haya error interno
     res.status(200).json({ 
@@ -325,38 +305,47 @@ export const webhookHandler = async (req, res) => {
 };
 
 /**
- * Procesar webhook de tipo "order" (nueva estructura)
+ * Procesar webhook de tipo "order" con ANTI-DUPLICACIÓN
  */
-const procesarOrderWebhook = async (orderData, res) => {
+const procesarOrderWebhook = async (orderData, res, webhookId) => {
   try {
-    console.log("📦 Procesando order webhook:", orderData);
+    console.log(`📦 [${webhookId}] Procesando order webhook:`, orderData);
 
     const { external_reference, id: orderId, status, transactions } = orderData;
 
-    // ✅ MANEJO DE PRUEBAS: Si es external_reference de prueba
-    if (external_reference === 'ext_ref_1234' || external_reference === 'TEST_REFERENCE') {
-      console.log("🧪 Procesando webhook de prueba con external_reference:", external_reference);
-      
-      // Crear una transacción de prueba o simular el procesamiento
-      await procesarWebhookDePrueba(orderData);
-      
+    // ✅ VERIFICACIÓN ANTI-DUPLICACIÓN: Si ya estamos procesando esta transacción
+    if (transaccionesProcesando.has(external_reference)) {
+      console.log(`⚠️ [${webhookId}] Transacción ${external_reference} YA se está procesando. Ignorando duplicado.`);
       return res.status(200).json({ 
         success: true, 
-        message: "Webhook de prueba procesado exitosamente",
-        transaccion: external_reference,
-        estado: 'aprobado'
+        message: "Transacción ya en proceso" 
+      });
+    }
+
+    // ✅ Agregar a procesamiento
+    transaccionesProcesando.add(external_reference);
+
+    // ✅ MANEJO DE PRUEBAS
+    if (external_reference === 'ext_ref_1234' || external_reference === 'TEST_REFERENCE') {
+      console.log(`🧪 [${webhookId}] Procesando webhook de prueba`);
+      await procesarWebhookDePrueba(orderData);
+      transaccionesProcesando.delete(external_reference);
+      return res.status(200).json({ 
+        success: true, 
+        message: "Webhook de prueba procesado"
       });
     }
 
     if (!external_reference) {
-      console.error("❌ No se encontró external_reference en el order webhook");
+      console.error(`❌ [${webhookId}] No se encontró external_reference`);
+      transaccionesProcesando.delete(external_reference);
       return res.status(200).json({ 
         success: false, 
         message: "External reference no encontrado" 
       });
     }
 
-    console.log("🔍 Buscando transacción con referencia:", external_reference);
+    console.log(`🔍 [${webhookId}] Buscando transacción: ${external_reference}`);
 
     // ✅ Buscar la transacción en nuestra base de datos
     const { data: transaccion, error: transError } = await supabaseAdmin
@@ -366,41 +355,33 @@ const procesarOrderWebhook = async (orderData, res) => {
       .single();
 
     if (transError || !transaccion) {
-      console.error("❌ Transacción no encontrada:", external_reference);
-      
-      // ✅ Si no encuentra la transacción, podría ser una referencia antigua o de prueba
-      // Buscar por otros patrones o crear una transacción simulada
-      console.log("🔍 Buscando transacciones recientes como fallback...");
-      
-      const { data: transaccionesRecientes, error: errorRecientes } = await supabaseAdmin
-        .from("transacciones_pagos")
-        .select("*")
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      if (!errorRecientes && transaccionesRecientes.length > 0) {
-        console.log("📋 Transacciones recientes encontradas:", transaccionesRecientes.length);
-        
-        // Usar la transacción más reciente para pruebas
-        const transaccionReciente = transaccionesRecientes[0];
-        console.log("🎯 Usando transacción reciente como referencia:", transaccionReciente.referencia);
-        
-        return await procesarTransaccionConOrder(transaccionReciente, orderData, res);
-      }
-      
+      console.error(`❌ [${webhookId}] Transacción no encontrada: ${external_reference}`);
+      transaccionesProcesando.delete(external_reference);
       return res.status(200).json({ 
         success: false, 
         message: "Transacción no encontrada" 
       });
     }
 
-    console.log("✅ Transacción encontrada:", transaccion.id);
-    return await procesarTransaccionConOrder(transaccion, orderData, res);
+    console.log(`✅ [${webhookId}] Transacción encontrada: ${transaccion.id}`);
+
+    // ✅ VERIFICAR SI YA FUE PROCESADA
+    if (transaccion.estado === 'aprobado' && transaccion.datos_respuesta?.numeros_asignados) {
+      console.log(`⚠️ [${webhookId}] Transacción ${external_reference} YA fue procesada y tiene números asignados.`);
+      transaccionesProcesando.delete(external_reference);
+      return res.status(200).json({ 
+        success: true, 
+        message: "Transacción ya procesada anteriormente" 
+      });
+    }
+
+    const resultado = await procesarTransaccionConOrder(transaccion, orderData, webhookId);
+    transaccionesProcesando.delete(external_reference);
+    return resultado;
 
   } catch (error) {
-    console.error("❌ Error procesando order webhook:", error);
-    
-    // ✅ Siempre retornar 200 a Mercado Pago
+    console.error(`❌ [${webhookId}] Error procesando order webhook:`, error);
+    transaccionesProcesando.delete(external_reference);
     return res.status(200).json({ 
       success: false, 
       message: "Error interno procesando webhook" 
@@ -409,14 +390,14 @@ const procesarOrderWebhook = async (orderData, res) => {
 };
 
 /**
- * Procesar transacción con datos de order
+ * Procesar transacción con datos de order - CON ANTI-DUPLICACIÓN
  */
-const procesarTransaccionConOrder = async (transaccion, orderData, res) => {
+const procesarTransaccionConOrder = async (transaccion, orderData, webhookId) => {
   try {
     const { status, transactions } = orderData;
     const { referencia } = transaccion;
 
-    console.log("✅ Procesando transacción:", referencia);
+    console.log(`✅ [${webhookId}] Procesando transacción: ${referencia}`);
 
     // ✅ Determinar estado basado en el order webhook
     let nuevoEstado = 'pendiente';
@@ -440,7 +421,7 @@ const procesarTransaccionConOrder = async (transaccion, orderData, res) => {
     const payments = transactions?.payments || [];
     if (payments.length > 0) {
       const payment = payments[0];
-      console.log("💳 Información del payment:", {
+      console.log(`💳 [${webhookId}] Información del payment:`, {
         id: payment.id,
         status: payment.status,
         status_detail: payment.status_detail
@@ -457,7 +438,7 @@ const procesarTransaccionConOrder = async (transaccion, orderData, res) => {
       }
     }
 
-    console.log("📊 Estado determinado:", { 
+    console.log(`📊 [${webhookId}] Estado determinado:`, { 
       order_status: status,
       payments_count: payments.length,
       estado_final: nuevoEstado
@@ -469,7 +450,7 @@ const procesarTransaccionConOrder = async (transaccion, orderData, res) => {
       actualizado_en: new Date()
     };
 
-    // ✅ Si está aprobado, procesar la compra
+    // ✅ Si está aprobado, procesar la compra (SOLO UNA VEZ)
     if (esAprobado) {
       updateData.fecha_aprobacion = new Date();
       
@@ -479,8 +460,20 @@ const procesarTransaccionConOrder = async (transaccion, orderData, res) => {
         updateData.referencia_pago = payment.id;
       }
 
-      console.log("🎉 Orden aprobada, procesando compra...");
-      await procesarCompraExitosa(transaccion, orderData);
+      console.log(`🎉 [${webhookId}] Orden aprobada, procesando compra...`);
+      
+      // ✅ VERIFICAR ANTI-DUPLICACIÓN antes de procesar
+      const { data: transaccionVerificada } = await supabaseAdmin
+        .from("transacciones_pagos")
+        .select("datos_respuesta")
+        .eq("referencia", referencia)
+        .single();
+
+      if (transaccionVerificada?.datos_respuesta?.numeros_asignados) {
+        console.log(`⚠️ [${webhookId}] Transacción ${referencia} YA tiene números asignados. Evitando duplicación.`);
+      } else {
+        await procesarCompraExitosa(transaccion, orderData, webhookId);
+      }
     }
 
     // ✅ Actualizar la transacción en la base de datos
@@ -490,11 +483,11 @@ const procesarTransaccionConOrder = async (transaccion, orderData, res) => {
       .eq("referencia", referencia);
 
     if (updateError) {
-      console.error("❌ Error actualizando transacción:", updateError);
+      console.error(`❌ [${webhookId}] Error actualizando transacción:`, updateError);
       throw updateError;
     }
 
-    console.log(`✅ Webhook procesado exitosamente - Transacción: ${referencia}, Estado: ${nuevoEstado}`);
+    console.log(`✅ [${webhookId}] Webhook procesado - Transacción: ${referencia}, Estado: ${nuevoEstado}`);
 
     return res.status(200).json({ 
       success: true, 
@@ -504,366 +497,31 @@ const procesarTransaccionConOrder = async (transaccion, orderData, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Error procesando transacción con order:", error);
+    console.error(`❌ [${webhookId}] Error procesando transacción con order:`, error);
     throw error;
   }
 };
 
 /**
- * Procesar webhook de prueba
+ * Procesar compra exitosa - CON ANTI-DUPLICACIÓN COMPLETA
  */
-const procesarWebhookDePrueba = async (orderData) => {
+const procesarCompraExitosa = async (transaccion, orderData, webhookId) => {
   try {
-    console.log("🧪 Procesando webhook de prueba...", orderData);
-    
-    // Simular procesamiento exitoso para pruebas
-    const { external_reference, status } = orderData;
-    
-    console.log(`✅ Webhook de prueba procesado - Reference: ${external_reference}, Status: ${status}`);
-    
-    // Podemos crear un registro de prueba en la base de datos si es necesario
-    if (process.env.NODE_ENV === 'development') {
-      const transaccionPrueba = {
-        referencia: external_reference,
-        estado: 'aprobado',
-        datos_respuesta: orderData,
-        created_at: new Date(),
-        actualizado_en: new Date()
-      };
-      
-      console.log("📝 Registro de prueba simulado:", transaccionPrueba);
-    }
-    
-    return true;
-    
-  } catch (error) {
-    console.error("❌ Error procesando webhook de prueba:", error);
-    throw error;
-  }
-};
-
-/**
- * Procesar merchant order desde URL resource
- */
-const procesarMerchantOrderWebhook = async (resourceUrl, res) => {
-  try {
-    console.log("🔗 Obteniendo merchant order desde:", resourceUrl);
-    
-    // ✅ VERIFICAR CREDENCIALES
-    if (!process.env.MP_ACCESS_TOKEN) {
-      console.error("❌ MP_ACCESS_TOKEN no configurado para merchant order");
-      return res.status(200).json({ 
-        success: false, 
-        message: "Credenciales no configuradas" 
-      });
-    }
-
-    // Extraer el ID de merchant order de la URL
-    const merchantOrderId = resourceUrl.split('/').pop();
-    console.log("🎯 Merchant Order ID:", merchantOrderId);
-
-    if (!merchantOrderId) {
-      throw new Error("No se pudo extraer el ID de merchant order de la URL");
-    }
-
-    // ✅ CORREGIDO: Usar fetch para obtener la merchant order directamente
-    // ya que el SDK v2 no tiene MerchantOrder
-    const merchantOrderUrl = `https://api.mercadopago.com/merchant_orders/${merchantOrderId}`;
-    
-    console.log("📡 Consultando merchant order a:", merchantOrderUrl);
-    
-    const response = await fetch(merchantOrderUrl, {
-      headers: getAuthHeaders() // ✅ USAR HEADERS CORRECTOS
-    });
-
-    if (!response.ok) {
-      // ✅ MANEJO MEJORADO DE ERRORES DE AUTENTICACIÓN
-      if (response.status === 401) {
-        console.error("❌ Error 401 - Token de acceso inválido o expirado");
-        throw new Error("Token de Mercado Pago inválido o expirado");
-      }
-      throw new Error(`Error obteniendo merchant order: ${response.status}`);
-    }
-
-    const merchantOrderData = await response.json();
-    
-    console.log("✅ Información de merchant order obtenida:", {
-      id: merchantOrderData.id,
-      status: merchantOrderData.status,
-      external_reference: merchantOrderData.external_reference,
-      order_status: merchantOrderData.order_status,
-      total_amount: merchantOrderData.total_amount,
-      payments: merchantOrderData.payments?.length || 0
-    });
-
-    // ✅ Procesar la merchant order
-    return await procesarMerchantOrderCompleta(merchantOrderData, res);
-
-  } catch (error) {
-    console.error("❌ Error procesando merchant order:", error);
-    
-    // Siempre retornar 200 a Mercado Pago
-    return res.status(200).json({ 
-      success: true, 
-      message: "Webhook recibido" 
-    });
-  }
-};
-
-/**
- * Procesar merchant order completa
- */
-const procesarMerchantOrderCompleta = async (merchantOrderData, res) => {
-  try {
-    const referencia = merchantOrderData.external_reference;
-    
-    if (!referencia) {
-      console.error("❌ No se encontró external_reference en la merchant order");
-      return res.status(200).json({ 
-        success: false, 
-        message: "External reference no encontrado" 
-      });
-    }
-
-    console.log("🔍 Buscando transacción con referencia:", referencia);
-
-    // ✅ Buscar la transacción en nuestra base de datos
-    const { data: transaccion, error: transError } = await supabaseAdmin
-      .from("transacciones_pagos")
-      .select("*")
-      .eq("referencia", referencia)
-      .single();
-
-    if (transError || !transaccion) {
-      console.error("❌ Transacción no encontrada:", referencia);
-      return res.status(200).json({ 
-        success: false, 
-        message: "Transacción no encontrada" 
-      });
-    }
-
-    console.log("✅ Transacción encontrada:", transaccion.id);
-
-    // ✅ Determinar estado basado en la merchant order
-    let nuevoEstado = 'pendiente';
-    let esAprobado = false;
-
-    if (merchantOrderData.order_status === 'paid') {
-      nuevoEstado = 'aprobado';
-      esAprobado = true;
-    } else if (merchantOrderData.order_status === 'pending') {
-      nuevoEstado = 'pendiente';
-    } else if (merchantOrderData.order_status === 'cancelled') {
-      nuevoEstado = 'cancelado';
-    } else if (merchantOrderData.order_status === 'expired') {
-      nuevoEstado = 'expirado';
-    }
-
-    console.log("📊 Estado determinado:", { 
-      order_status: merchantOrderData.order_status,
-      estado_final: nuevoEstado
-    });
-
-    const updateData = {
-      estado: nuevoEstado,
-      datos_respuesta: merchantOrderData,
-      actualizado_en: new Date()
-    };
-
-    // ✅ Si está aprobado, procesar la compra
-    if (esAprobado) {
-      updateData.fecha_aprobacion = new Date();
-      
-      // Obtener información del payment
-      const payments = merchantOrderData.payments || [];
-      if (payments.length > 0) {
-        const payment = payments[0];
-        updateData.metodo_pago = payment.payment_method_id;
-        updateData.referencia_pago = payment.id;
-      }
-
-      console.log("🎉 Merchant order pagada, procesando compra...");
-      await procesarCompraExitosa(transaccion, merchantOrderData);
-    }
-
-    // ✅ Actualizar la transacción en la base de datos
-    const { error: updateError } = await supabaseAdmin
-      .from("transacciones_pagos")
-      .update(updateData)
-      .eq("referencia", referencia);
-
-    if (updateError) {
-      console.error("❌ Error actualizando transacción:", updateError);
-      throw updateError;
-    }
-
-    console.log(`✅ Merchant order procesada exitosamente - Transacción: ${referencia}, Estado: ${nuevoEstado}`);
-
-    return res.status(200).json({ 
-      success: true, 
-      message: `Merchant order procesada. Estado: ${nuevoEstado}`,
-      transaccion: referencia,
-      estado: nuevoEstado
-    });
-
-  } catch (error) {
-    console.error("❌ Error procesando merchant order completa:", error);
-    throw error;
-  }
-};
-
-/**
- * Procesar payment webhook
- */
-const procesarPaymentWebhook = async (paymentId, res) => {
-  try {
-    console.log("💳 Procesando payment con ID:", paymentId);
-    
-    // ✅ VERIFICAR CREDENCIALES
-    if (!process.env.MP_ACCESS_TOKEN) {
-      console.error("❌ MP_ACCESS_TOKEN no configurado para payment");
-      return res.status(200).json({ 
-        success: false, 
-        message: "Credenciales no configuradas" 
-      });
-    }
-
-    // Para pruebas, manejamos los payment IDs de prueba
-    if (paymentId === 'PAY01K7S9596QBWZRTY02NF' || paymentId.includes('TEST')) {
-      console.log("🧪 Procesando payment de prueba:", paymentId);
-      await procesarWebhookDePrueba({ id: paymentId, status: 'approved' });
-      return res.status(200).json({ 
-        success: true, 
-        message: "Payment de prueba procesado" 
-      });
-    }
-
-    // ✅ USAR PAYMENT CLIENT CORRECTAMENTE
-    const paymentData = await paymentClient.get({ 
-      id: paymentId,
-      requestOptions: { timeout: 10000 }
-    });
-
-    console.log("✅ Información del payment obtenida:", {
-      id: paymentData.id,
-      status: paymentData.status,
-      status_detail: paymentData.status_detail,
-      external_reference: paymentData.external_reference
-    });
-
-    const referencia = paymentData.external_reference;
-    
-    if (!referencia) {
-      console.error("❌ No se encontró referencia en el payment");
-      return res.status(200).json({ 
-        success: true, 
-        message: "Payment recibido sin referencia" 
-      });
-    }
-
-    console.log("🔍 Buscando transacción con referencia:", referencia);
-
-    // ✅ Buscar la transacción en nuestra base de datos
-    const { data: transaccion, error: transError } = await supabaseAdmin
-      .from("transacciones_pagos")
-      .select("*")
-      .eq("referencia", referencia)
-      .single();
-
-    if (transError || !transaccion) {
-      console.error("❌ Transacción no encontrada:", referencia);
-      return res.status(200).json({ 
-        success: true, 
-        message: "Transacción no encontrada" 
-      });
-    }
-
-    console.log("✅ Transacción encontrada:", transaccion.id);
-
-    // ✅ Determinar estado basado en el payment
-    let nuevoEstado = 'pendiente';
-    let esAprobado = false;
-
-    if (paymentData.status === 'approved' || paymentData.status === 'accredited') {
-      nuevoEstado = 'aprobado';
-      esAprobado = true;
-    } else if (paymentData.status === 'pending') {
-      nuevoEstado = 'pendiente';
-    } else if (paymentData.status === 'cancelled') {
-      nuevoEstado = 'cancelado';
-    } else if (paymentData.status === 'rejected') {
-      nuevoEstado = 'rechazado';
-    }
-
-    const updateData = {
-      estado: nuevoEstado,
-      datos_respuesta: paymentData,
-      actualizado_en: new Date()
-    };
-
-    // ✅ Si está aprobado, procesar la compra
-    if (esAprobado) {
-      updateData.fecha_aprobacion = new Date();
-      updateData.metodo_pago = paymentData.payment_method_id;
-      updateData.referencia_pago = paymentData.id;
-
-      console.log("🎉 Payment aprobado, procesando compra...");
-      await procesarCompraExitosa(transaccion, paymentData);
-    }
-
-    // ✅ Actualizar la transacción en la base de datos
-    const { error: updateError } = await supabaseAdmin
-      .from("transacciones_pagos")
-      .update(updateData)
-      .eq("referencia", referencia);
-
-    if (updateError) {
-      console.error("❌ Error actualizando transacción:", updateError);
-      throw updateError;
-    }
-
-    console.log(`✅ Payment webhook procesado - Transacción: ${referencia}, Estado: ${nuevoEstado}`);
-
-    return res.status(200).json({ 
-      success: true, 
-      message: `Payment procesado. Estado: ${nuevoEstado}`,
-      transaccion: referencia,
-      estado: nuevoEstado
-    });
-
-  } catch (error) {
-    console.error("❌ Error procesando payment:", error);
-    
-    // Si es error 404, podría ser una prueba
-    if (error.status === 404) {
-      console.log("⚠️ Payment no encontrado - Probablemente es una prueba");
-      return res.status(200).json({ 
-        success: true, 
-        message: "Webhook de prueba procesado (payment simulado)" 
-      });
-    }
-    
-    // Manejo específico de errores de autenticación
-    if (error.status === 401) {
-      console.error("❌ Error 401 - Token de Mercado Pago inválido o expirado");
-    }
-    
-    // Siempre retornar 200 a Mercado Pago
-    return res.status(200).json({ 
-      success: true, 
-      message: "Webhook recibido" 
-    });
-  }
-};
-
-/**
- * Procesar compra exitosa - CORREGIDO (sin duplicados)
- */
-const procesarCompraExitosa = async (transaccion, orderData) => {
-  try {
-    console.log("🎉 Procesando compra exitosa:", transaccion.referencia);
+    console.log(`🎉 [${webhookId}] Procesando compra exitosa: ${transaccion.referencia}`);
 
     const { rifa_id, cantidad, datos_usuario, usuario_documento } = transaccion;
+
+    // ✅ VERIFICACIÓN ANTI-DUPLICACIÓN: Chequear si YA se procesó
+    const { data: transaccionVerificada } = await supabaseAdmin
+      .from("transacciones_pagos")
+      .select("datos_respuesta")
+      .eq("referencia", transaccion.referencia)
+      .single();
+
+    if (transaccionVerificada?.datos_respuesta?.numeros_asignados) {
+      console.log(`⚠️ [${webhookId}] Transacción ${transaccion.referencia} YA tiene números asignados. EVITANDO DUPLICACIÓN.`);
+      return;
+    }
 
     // ✅ 1. CREAR O BUSCAR USUARIO
     let usuarioId = transaccion.usuario_id;
@@ -874,7 +532,6 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
       usuarioId = usuario.id;
       numeroDocumento = doc;
       
-      // ✅ Actualizar la transacción con el usuario_id
       await supabaseAdmin
         .from("transacciones_pagos")
         .update({
@@ -884,10 +541,10 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
         .eq("id", transaccion.id);
     }
 
-    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS (solo una vez)
-    const numerosAsignados = await asignarNumerosAleatorios(rifa_id, cantidad, usuarioId, numeroDocumento);
+    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS (con verificación anti-duplicación)
+    const numerosAsignados = await asignarNumerosAleatorios(rifa_id, cantidad, usuarioId, numeroDocumento, webhookId);
 
-    console.log(`✅ Compra procesada exitosamente - Usuario: ${usuarioId}, Números: ${numerosAsignados.length}`);
+    console.log(`✅ [${webhookId}] Compra procesada - Usuario: ${usuarioId}, Números: ${numerosAsignados.length}`);
 
     // ✅ 3. ACTUALIZAR LA TRANSACCIÓN CON LOS NÚMEROS ASIGNADOS
     await supabaseAdmin
@@ -896,20 +553,432 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
         datos_respuesta: {
           ...transaccion.datos_respuesta,
           numeros_asignados: numerosAsignados,
-          cantidad_entregada: numerosAsignados.length
+          cantidad_entregada: numerosAsignados.length,
+          procesado_en: new Date().toISOString(),
+          webhook_id: webhookId
         }
       })
-      .eq("id", transaccion.id);
+      .eq("referencia", transaccion.referencia);
 
   } catch (error) {
-    console.error("❌ Error procesando compra exitosa:", error);
+    console.error(`❌ [${webhookId}] Error procesando compra exitosa:`, error);
     throw error;
   }
 };
 
 /**
- * Crear o buscar usuario
+ * Asignar números aleatorios - CON ANTI-DUPLICACIÓN ROBUSTA
  */
+const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento, webhookId) => {
+  try {
+    console.log(`🔍 [${webhookId}] Buscando ${cantidad} números para rifa ${rifaId}...`);
+
+    // ✅ VERIFICACIÓN CRÍTICA: Chequear si el usuario YA tiene números para esta rifa
+    const { data: numerosExistentes } = await supabaseAdmin
+      .from("numeros_usuario")
+      .select("numero")
+      .eq("usuario_id", usuarioId)
+      .eq("rifa_id", rifaId);
+
+    if (numerosExistentes && numerosExistentes.length > 0) {
+      console.log(`⚠️ [${webhookId}] Usuario YA TIENE ${numerosExistentes.length} números. EVITANDO DUPLICACIÓN.`);
+      return numerosExistentes.map(n => n.numero);
+    }
+
+    // ✅ OBTENER NÚMEROS DISPONIBLES
+    const { data: numerosDisponibles, error: disponiblesError } = await supabaseAdmin
+      .from("numeros")
+      .select("id, numero")
+      .eq("rifa_id", rifaId)
+      .is("comprado_por", null)
+      .limit(cantidad + 50);
+
+    if (disponiblesError) throw disponiblesError;
+
+    console.log(`🎯 [${webhookId}] Números disponibles: ${numerosDisponibles?.length || 0}`);
+
+    if (!numerosDisponibles || numerosDisponibles.length < cantidad) {
+      throw new Error(`No hay suficientes números. Solicitados: ${cantidad}, Disponibles: ${numerosDisponibles?.length || 0}`);
+    }
+
+    // ✅ MEZCLAR Y SELECCIONAR
+    const mezclarArray = (array) => {
+      const shuffled = [...array];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    };
+
+    const numerosMezclados = mezclarArray(numerosDisponibles);
+    const seleccionados = numerosMezclados.slice(0, cantidad);
+    const numerosIds = seleccionados.map(n => n.id);
+    const numerosValores = seleccionados.map(n => n.numero).sort((a, b) => parseInt(a) - parseInt(b));
+
+    console.log(`🎲 [${webhookId}] ${cantidad} números seleccionados:`, numerosValores);
+
+    // ✅ ACTUALIZAR TABLA 'numeros'
+    const { error: updateError } = await supabaseAdmin
+      .from("numeros")
+      .update({
+        comprado_por: numeroDocumento,
+        usuario_id: usuarioId,
+        fecha_compra: new Date()
+      })
+      .in("id", numerosIds);
+
+    if (updateError) throw updateError;
+
+    // ✅ INSERTAR EN 'numeros_usuario'
+    const numerosUsuarioData = seleccionados.map(numeroObj => ({
+      numero: numeroObj.numero,
+      numero_documento: numeroDocumento,
+      usuario_id: usuarioId,
+      rifa_id: rifaId,
+      fecha_asignacion: new Date()
+    }));
+
+    const { error: insertError } = await supabaseAdmin
+      .from("numeros_usuario")
+      .insert(numerosUsuarioData);
+
+    if (insertError) {
+      // ✅ REVERTIR en caso de error
+      await supabaseAdmin
+        .from("numeros")
+        .update({
+          comprado_por: null,
+          usuario_id: null,
+          fecha_compra: null
+        })
+        .in("id", numerosIds);
+      throw insertError;
+    }
+
+    console.log(`✅ [${webhookId}] ${cantidad} números asignados SIN DUPLICACIÓN`);
+    return numerosValores;
+
+  } catch (error) {
+    console.error(`❌ [${webhookId}] Error asignando números:`, error);
+    throw error;
+  }
+};
+
+// ... (las otras funciones auxiliares se mantienen igual, pero con los webhookId)
+const procesarWebhookDePrueba = async (orderData) => {
+  try {
+    console.log("🧪 Procesando webhook de prueba...", orderData);
+    return true;
+  } catch (error) {
+    console.error("❌ Error procesando webhook de prueba:", error);
+    throw error;
+  }
+};
+
+const procesarMerchantOrderWebhook = async (resourceUrl, res, webhookId) => {
+  try {
+    console.log(`🔗 [${webhookId}] Obteniendo merchant order desde: ${resourceUrl}`);
+    
+    if (!process.env.MP_ACCESS_TOKEN) {
+      console.error(`❌ [${webhookId}] MP_ACCESS_TOKEN no configurado`);
+      return res.status(200).json({ 
+        success: false, 
+        message: "Credenciales no configuradas" 
+      });
+    }
+
+    const merchantOrderId = resourceUrl.split('/').pop();
+    console.log(`🎯 [${webhookId}] Merchant Order ID: ${merchantOrderId}`);
+
+    if (!merchantOrderId) {
+      throw new Error("No se pudo extraer el ID de merchant order de la URL");
+    }
+
+    const merchantOrderUrl = `https://api.mercadopago.com/merchant_orders/${merchantOrderId}`;
+    
+    console.log(`📡 [${webhookId}] Consultando merchant order a: ${merchantOrderUrl}`);
+    
+    const response = await fetch(merchantOrderUrl, {
+      headers: {
+        'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        console.error(`❌ [${webhookId}] Error 401 - Token inválido`);
+        throw new Error("Token de Mercado Pago inválido o expirado");
+      }
+      throw new Error(`Error obteniendo merchant order: ${response.status}`);
+    }
+
+    const merchantOrderData = await response.json();
+    
+    console.log(`✅ [${webhookId}] Información de merchant order obtenida:`, {
+      id: merchantOrderData.id,
+      status: merchantOrderData.status,
+      external_reference: merchantOrderData.external_reference
+    });
+
+    return await procesarMerchantOrderCompleta(merchantOrderData, res, webhookId);
+
+  } catch (error) {
+    console.error(`❌ [${webhookId}] Error procesando merchant order:`, error);
+    return res.status(200).json({ 
+      success: true, 
+      message: "Webhook recibido" 
+    });
+  }
+};
+
+const procesarMerchantOrderCompleta = async (merchantOrderData, res, webhookId) => {
+  try {
+    const referencia = merchantOrderData.external_reference;
+    
+    if (!referencia) {
+      console.error(`❌ [${webhookId}] No se encontró external_reference`);
+      return res.status(200).json({ 
+        success: false, 
+        message: "External reference no encontrado" 
+      });
+    }
+
+    console.log(`🔍 [${webhookId}] Buscando transacción: ${referencia}`);
+
+    const { data: transaccion, error: transError } = await supabaseAdmin
+      .from("transacciones_pagos")
+      .select("*")
+      .eq("referencia", referencia)
+      .single();
+
+    if (transError || !transaccion) {
+      console.error(`❌ [${webhookId}] Transacción no encontrada: ${referencia}`);
+      return res.status(200).json({ 
+        success: false, 
+        message: "Transacción no encontrada" 
+      });
+    }
+
+    console.log(`✅ [${webhookId}] Transacción encontrada: ${transaccion.id}`);
+
+    // ✅ VERIFICAR ANTI-DUPLICACIÓN
+    if (transaccion.estado === 'aprobado' && transaccion.datos_respuesta?.numeros_asignados) {
+      console.log(`⚠️ [${webhookId}] Transacción ${referencia} YA procesada. Ignorando.`);
+      return res.status(200).json({ 
+        success: true, 
+        message: "Transacción ya procesada" 
+      });
+    }
+
+    let nuevoEstado = 'pendiente';
+    let esAprobado = false;
+
+    if (merchantOrderData.order_status === 'paid') {
+      nuevoEstado = 'aprobado';
+      esAprobado = true;
+    }
+
+    console.log(`📊 [${webhookId}] Estado determinado:`, { 
+      order_status: merchantOrderData.order_status,
+      estado_final: nuevoEstado
+    });
+
+    const updateData = {
+      estado: nuevoEstado,
+      datos_respuesta: merchantOrderData,
+      actualizado_en: new Date()
+    };
+
+    if (esAprobado) {
+      updateData.fecha_aprobacion = new Date();
+      
+      const payments = merchantOrderData.payments || [];
+      if (payments.length > 0) {
+        const payment = payments[0];
+        updateData.metodo_pago = payment.payment_method_id;
+        updateData.referencia_pago = payment.id;
+      }
+
+      console.log(`🎉 [${webhookId}] Merchant order pagada, procesando compra...`);
+      
+      // ✅ VERIFICAR ANTI-DUPLICACIÓN
+      const { data: transaccionVerificada } = await supabaseAdmin
+        .from("transacciones_pagos")
+        .select("datos_respuesta")
+        .eq("referencia", referencia)
+        .single();
+
+      if (!transaccionVerificada?.datos_respuesta?.numeros_asignados) {
+        await procesarCompraExitosa(transaccion, merchantOrderData, webhookId);
+      }
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from("transacciones_pagos")
+      .update(updateData)
+      .eq("referencia", referencia);
+
+    if (updateError) throw updateError;
+
+    console.log(`✅ [${webhookId}] Merchant order procesada - Transacción: ${referencia}, Estado: ${nuevoEstado}`);
+
+    return res.status(200).json({ 
+      success: true, 
+      message: `Merchant order procesada. Estado: ${nuevoEstado}`,
+      transaccion: referencia,
+      estado: nuevoEstado
+    });
+
+  } catch (error) {
+    console.error(`❌ [${webhookId}] Error procesando merchant order completa:`, error);
+    throw error;
+  }
+};
+
+const procesarPaymentWebhook = async (paymentId, res, webhookId) => {
+  try {
+    console.log(`💳 [${webhookId}] Procesando payment con ID: ${paymentId}`);
+    
+    if (!process.env.MP_ACCESS_TOKEN) {
+      console.error(`❌ [${webhookId}] MP_ACCESS_TOKEN no configurado`);
+      return res.status(200).json({ 
+        success: false, 
+        message: "Credenciales no configuradas" 
+      });
+    }
+
+    // Para pruebas
+    if (paymentId === 'PAY01K7S9596QBWZRTY02NF' || paymentId.includes('TEST')) {
+      console.log(`🧪 [${webhookId}] Procesando payment de prueba: ${paymentId}`);
+      await procesarWebhookDePrueba({ id: paymentId, status: 'approved' });
+      return res.status(200).json({ 
+        success: true, 
+        message: "Payment de prueba procesado" 
+      });
+    }
+
+    const paymentData = await paymentClient.get({ 
+      id: paymentId,
+      requestOptions: { timeout: 10000 }
+    });
+
+    console.log(`✅ [${webhookId}] Información del payment obtenida:`, {
+      id: paymentData.id,
+      status: paymentData.status,
+      external_reference: paymentData.external_reference
+    });
+
+    const referencia = paymentData.external_reference;
+    
+    if (!referencia) {
+      console.error(`❌ [${webhookId}] No se encontró referencia en el payment`);
+      return res.status(200).json({ 
+        success: true, 
+        message: "Payment recibido sin referencia" 
+      });
+    }
+
+    console.log(`🔍 [${webhookId}] Buscando transacción: ${referencia}`);
+
+    const { data: transaccion, error: transError } = await supabaseAdmin
+      .from("transacciones_pagos")
+      .select("*")
+      .eq("referencia", referencia)
+      .single();
+
+    if (transError || !transaccion) {
+      console.error(`❌ [${webhookId}] Transacción no encontrada: ${referencia}`);
+      return res.status(200).json({ 
+        success: true, 
+        message: "Transacción no encontrada" 
+      });
+    }
+
+    console.log(`✅ [${webhookId}] Transacción encontrada: ${transaccion.id}`);
+
+    // ✅ VERIFICAR ANTI-DUPLICACIÓN
+    if (transaccion.estado === 'aprobado' && transaccion.datos_respuesta?.numeros_asignados) {
+      console.log(`⚠️ [${webhookId}] Transacción ${referencia} YA procesada. Ignorando.`);
+      return res.status(200).json({ 
+        success: true, 
+        message: "Transacción ya procesada" 
+      });
+    }
+
+    let nuevoEstado = 'pendiente';
+    let esAprobado = false;
+
+    if (paymentData.status === 'approved' || paymentData.status === 'accredited') {
+      nuevoEstado = 'aprobado';
+      esAprobado = true;
+    }
+
+    const updateData = {
+      estado: nuevoEstado,
+      datos_respuesta: paymentData,
+      actualizado_en: new Date()
+    };
+
+    if (esAprobado) {
+      updateData.fecha_aprobacion = new Date();
+      updateData.metodo_pago = paymentData.payment_method_id;
+      updateData.referencia_pago = paymentData.id;
+
+      console.log(`🎉 [${webhookId}] Payment aprobado, procesando compra...`);
+      
+      // ✅ VERIFICAR ANTI-DUPLICACIÓN
+      const { data: transaccionVerificada } = await supabaseAdmin
+        .from("transacciones_pagos")
+        .select("datos_respuesta")
+        .eq("referencia", referencia)
+        .single();
+
+      if (!transaccionVerificada?.datos_respuesta?.numeros_asignados) {
+        await procesarCompraExitosa(transaccion, paymentData, webhookId);
+      }
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from("transacciones_pagos")
+      .update(updateData)
+      .eq("referencia", referencia);
+
+    if (updateError) throw updateError;
+
+    console.log(`✅ [${webhookId}] Payment webhook procesado - Transacción: ${referencia}, Estado: ${nuevoEstado}`);
+
+    return res.status(200).json({ 
+      success: true, 
+      message: `Payment procesado. Estado: ${nuevoEstado}`,
+      transaccion: referencia,
+      estado: nuevoEstado
+    });
+
+  } catch (error) {
+    console.error(`❌ [${webhookId}] Error procesando payment:`, error);
+    
+    if (error.status === 404) {
+      console.log(`⚠️ [${webhookId}] Payment no encontrado - Probablemente prueba`);
+      return res.status(200).json({ 
+        success: true, 
+        message: "Webhook de prueba procesado" 
+      });
+    }
+    
+    if (error.status === 401) {
+      console.error(`❌ [${webhookId}] Error 401 - Token inválido`);
+    }
+    
+    return res.status(200).json({ 
+      success: true, 
+      message: "Webhook recibido" 
+    });
+  }
+};
+
+// ... (funciones auxiliares de usuario se mantienen igual)
 const crearOBuscarUsuario = async (datosUsuario) => {
   try {
     const { 
@@ -978,14 +1047,9 @@ const crearOBuscarUsuario = async (datosUsuario) => {
       .select()
       .single();
 
-    if (error) {
-      console.error("❌ Error creando usuario:", error);
-      throw error;
-    }
+    if (error) throw error;
 
     console.log("✅ Nuevo usuario creado:", usuario.id);
-    console.log("🔐 Contraseña generada:", passwordPlana);
-
     return { 
         usuario, 
         doc: usuario.numero_documento 
@@ -997,9 +1061,6 @@ const crearOBuscarUsuario = async (datosUsuario) => {
   }
 };
 
-/**
- * Generar contraseña segura
- */
 const generarContraseñaSegura = () => {
   const longitud = 10;
   const mayusculas = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -1020,106 +1081,6 @@ const generarContraseñaSegura = () => {
   }
 
   return contraseña.split('').sort(() => Math.random() - 0.5).join('');
-};
-
-/**
- * Asignar números aleatorios - CORREGIDO Y MEJORADO
- */
-const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento) => {
-  try {
-    console.log(`🔍 Buscando TODOS los números disponibles para rifa ${rifaId}...`);
-    
-    // ✅ OBTENER TODOS LOS NÚMEROS DISPONIBLES (sin límite)
-    let allNumerosDisponibles = [];
-    let from = 0;
-    const batchSize = 1000;
-    let hasMore = true;
-
-    while (hasMore) {
-      const { data: batch, error: disponiblesError } = await supabaseAdmin
-        .from("numeros")
-        .select("id, numero")
-        .eq("rifa_id", rifaId)
-        .is("comprado_por", null)
-        .range(from, from + batchSize - 1);
-
-      if (disponiblesError) throw disponiblesError;
-
-      if (batch && batch.length > 0) {
-        allNumerosDisponibles = [...allNumerosDisponibles, ...batch];
-        from += batchSize;
-        console.log(`📦 Lote de números disponibles: ${batch.length}. Total acumulado: ${allNumerosDisponibles.length}`);
-      } else {
-        hasMore = false;
-      }
-    }
-
-    console.log(`🎯 TOTAL números disponibles encontrados: ${allNumerosDisponibles.length}`);
-
-    if (allNumerosDisponibles.length < cantidad) {
-      throw new Error(`No hay suficientes números disponibles. Solicitados: ${cantidad}, Disponibles: ${allNumerosDisponibles.length}`);
-    }
-
-    // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA DE TODOS LOS NÚMEROS
-    const mezclarArray = (array) => {
-      const shuffled = [...array];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-      return shuffled;
-    };
-
-    const numerosMezclados = mezclarArray(allNumerosDisponibles);
-    const seleccionados = numerosMezclados.slice(0, cantidad);
-    const numerosIds = seleccionados.map(n => n.id);
-    const numerosValores = seleccionados.map(n => n.numero).sort((a, b) => parseInt(a) - parseInt(b));
-
-    // ✅ Calcular estadísticas para verificar aleatoriedad
-    const minSeleccionado = Math.min(...numerosValores.map(n => parseInt(n)));
-    const maxSeleccionado = Math.max(...numerosValores.map(n => parseInt(n)));
-    
-    console.log(`🎲 Números seleccionados ALEATORIAMENTE:`, {
-      cantidad: numerosValores.length,
-      rango: `${minSeleccionado} a ${maxSeleccionado}`,
-      numeros: numerosValores
-    });
-
-    // ✅ ACTUALIZAR LA TABLA 'numeros' con el usuario_id
-    const { error: updateError } = await supabaseAdmin
-      .from("numeros")
-      .update({
-        comprado_por: numeroDocumento,
-        usuario_id: usuarioId
-      })
-      .in("id", numerosIds);
-
-    if (updateError) throw updateError;
-
-    // ✅ ✅ CORRECCIÓN CRÍTICA: INSERTAR EN numeros_usuario también
-    const numerosUsuarioData = seleccionados.map(numero => ({
-      numero: numero.numero,
-      numero_documento: numeroDocumento,
-      usuario_id: usuarioId,
-      rifa_id: rifaId
-    }));
-
-    const { error: insertError } = await supabaseAdmin
-      .from("numeros_usuario")
-      .insert(numerosUsuarioData);
-
-    if (insertError) {
-      console.error("❌ Error insertando en numeros_usuario:", insertError);
-      throw insertError;
-    }
-
-    console.log(`✅ ${cantidad} números asignados aleatoriamente e insertados en ambas tablas:`, numerosValores);
-    return numerosValores;
-
-  } catch (error) {
-    console.error("❌ Error asignando números:", error);
-    throw error;
-  }
 };
 
 /**

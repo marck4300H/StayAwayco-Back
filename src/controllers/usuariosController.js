@@ -50,7 +50,6 @@ export const registrarUsuario = async (req, res) => {
           telefono: telefono || null,
           password: hashedPassword,
           fecha_registro: new Date(),
-          // numero_documento, direccion, etc. se llenarán después
         }
       ])
       .select();
@@ -60,7 +59,7 @@ export const registrarUsuario = async (req, res) => {
     // ✅ Generar token con el NUEVO id
     const token = jwt.sign(
       {
-        id: data[0].id, // ← NUEVO: usar id
+        id: data[0].id,
         correo_electronico: data[0].correo_electronico,
         userType: "user"
       },
@@ -119,8 +118,8 @@ export const loginUsuario = async (req, res) => {
     // ✅ Generar token JWT con el NUEVO id
     const token = jwt.sign(
       {
-        id: usuario.id, // ← NUEVO: usar id
-        numero_documento: usuario.numero_documento, // ← Mantener para compatibilidad
+        id: usuario.id,
+        numero_documento: usuario.numero_documento,
         correo_electronico: usuario.correo_electronico,
         userType: "user"
       },
@@ -136,7 +135,7 @@ export const loginUsuario = async (req, res) => {
       token,
       userType: "user",
       usuario: {
-        id: usuario.id, // ← NUEVO
+        id: usuario.id,
         numero_documento: usuario.numero_documento,
         nombres: usuario.nombres,
         apellidos: usuario.apellidos,
@@ -152,7 +151,6 @@ export const loginUsuario = async (req, res) => {
   }
 };
 
-// Obtener perfil - ACTUALIZADO
 // Obtener perfil - COMPATIBILIDAD COMPLETA
 export const obtenerPerfil = async (req, res) => {
   console.log("🎯 EJECUTANDO obtenerPerfil - Usuario:", req.usuario);
@@ -204,6 +202,109 @@ export const obtenerPerfil = async (req, res) => {
   } catch (err) {
     console.error("❌ Error al obtener perfil:", err);
     res.status(500).json({ success: false, message: "Error del servidor." });
+  }
+};
+
+// 🎯 NUEVA FUNCIÓN: Obtener números comprados por el usuario
+export const obtenerNumerosUsuario = async (req, res) => {
+  try {
+    const usuario = req.usuario;
+
+    if (!usuario || (!usuario.id && !usuario.numero_documento)) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Usuario no autenticado." 
+      });
+    }
+
+    console.log(`📋 Buscando números para usuario:`, usuario);
+
+    let allNumerosUsuario = [];
+    
+    // ✅ BUSCAR POR USUARIO_ID (prioritario para nuevos usuarios)
+    if (usuario.id) {
+      const { data: byUserId, error: error1 } = await supabaseAdmin
+        .from("numeros_usuario")
+        .select("numero, rifa_id")
+        .eq("usuario_id", usuario.id)
+        .order("numero", { ascending: true });
+
+      if (!error1 && byUserId) {
+        allNumerosUsuario = byUserId;
+        console.log(`📊 Encontrados ${allNumerosUsuario.length} números por usuario_id`);
+      }
+    }
+
+    // ✅ SI NO ENCONTRÓ POR ID, BUSCAR POR NUMERO_DOCUMENTO (compatibilidad)
+    if (allNumerosUsuario.length === 0 && usuario.numero_documento) {
+      const { data: byDoc, error: error2 } = await supabaseAdmin
+        .from("numeros_usuario")
+        .select("numero, rifa_id")
+        .eq("numero_documento", usuario.numero_documento)
+        .order("numero", { ascending: true });
+
+      if (!error2 && byDoc) {
+        allNumerosUsuario = byDoc;
+        console.log(`📊 Encontrados ${allNumerosUsuario.length} números por numero_documento`);
+      }
+    }
+
+    if (allNumerosUsuario.length === 0) {
+      return res.json({ 
+        success: true, 
+        numeros: [] 
+      });
+    }
+
+    // ✅ Obtener información de las rifas
+    const rifaIds = [...new Set(allNumerosUsuario.map(item => item.rifa_id))];
+    
+    const { data: rifas, error: rifasError } = await supabaseAdmin
+      .from("rifas")
+      .select("id, titulo, cantidad_numeros")
+      .in("id", rifaIds);
+
+    if (rifasError) {
+      console.error("❌ Error obteniendo rifas:", rifasError);
+      throw rifasError;
+    }
+
+    // ✅ Crear mapa de rifas para búsqueda rápida
+    const rifaMap = {};
+    rifas.forEach(rifa => {
+      rifaMap[rifa.id] = {
+        titulo: rifa.titulo,
+        total_numeros: rifa.cantidad_numeros
+      };
+    });
+
+    // ✅ Construir respuesta
+    const respuesta = allNumerosUsuario.map((item) => {
+      const rifaInfo = rifaMap[item.rifa_id];
+      return {
+        numero: item.numero,
+        rifa_id: item.rifa_id,
+        titulo_rifa: rifaInfo?.titulo || "Rifa no encontrada",
+        total_numeros_rifa: rifaInfo?.total_numeros || 0
+      };
+    });
+
+    console.log("✅ RESPUESTA FINAL DE NÚMEROS:", {
+      total_numeros: respuesta.length,
+      rifas_unicas: [...new Set(respuesta.map(r => r.titulo_rifa))]
+    });
+
+    return res.json({ 
+      success: true, 
+      numeros: respuesta 
+    });
+
+  } catch (err) {
+    console.error("❌ Error obteniendo números del usuario:", err);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Error interno del servidor al obtener números." 
+    });
   }
 };
 
@@ -318,107 +419,5 @@ export const eliminarUsuario = async (req, res) => {
   } catch (err) {
     console.error("❌ Error al eliminar usuario:", err);
     res.status(500).json({ success: false, message: "Error al eliminar usuario." });
-  }
-};
-// 🎯 Obtener números comprados por el usuario - NUEVO ENDPOINT
-export const obtenerNumerosUsuario = async (req, res) => {
-  try {
-    const usuario = req.usuario;
-
-    if (!usuario || (!usuario.id && !usuario.numero_documento)) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Usuario no autenticado." 
-      });
-    }
-
-    console.log(`📋 Buscando números para usuario:`, usuario);
-
-    let allNumerosUsuario = [];
-    
-    // ✅ BUSCAR POR USUARIO_ID (prioritario para nuevos usuarios)
-    if (usuario.id) {
-      const { data: byUserId, error: error1 } = await supabaseAdmin
-        .from("numeros_usuario")
-        .select("numero, rifa_id")
-        .eq("usuario_id", usuario.id)
-        .order("numero", { ascending: true });
-
-      if (!error1 && byUserId) {
-        allNumerosUsuario = byUserId;
-        console.log(`📊 Encontrados ${allNumerosUsuario.length} números por usuario_id`);
-      }
-    }
-
-    // ✅ SI NO ENCONTRÓ POR ID, BUSCAR POR NUMERO_DOCUMENTO (compatibilidad)
-    if (allNumerosUsuario.length === 0 && usuario.numero_documento) {
-      const { data: byDoc, error: error2 } = await supabaseAdmin
-        .from("numeros_usuario")
-        .select("numero, rifa_id")
-        .eq("numero_documento", usuario.numero_documento)
-        .order("numero", { ascending: true });
-
-      if (!error2 && byDoc) {
-        allNumerosUsuario = byDoc;
-        console.log(`📊 Encontrados ${allNumerosUsuario.length} números por numero_documento`);
-      }
-    }
-
-    if (allNumerosUsuario.length === 0) {
-      return res.json({ 
-        success: true, 
-        numeros: [] 
-      });
-    }
-
-    // ✅ Obtener información de las rifas
-    const rifaIds = [...new Set(allNumerosUsuario.map(item => item.rifa_id))];
-    
-    const { data: rifas, error: rifasError } = await supabaseAdmin
-      .from("rifas")
-      .select("id, titulo, cantidad_numeros")
-      .in("id", rifaIds);
-
-    if (rifasError) {
-      console.error("❌ Error obteniendo rifas:", rifasError);
-      throw rifasError;
-    }
-
-    // ✅ Crear mapa de rifas para búsqueda rápida
-    const rifaMap = {};
-    rifas.forEach(rifa => {
-      rifaMap[rifa.id] = {
-        titulo: rifa.titulo,
-        total_numeros: rifa.cantidad_numeros
-      };
-    });
-
-    // ✅ Construir respuesta
-    const respuesta = allNumerosUsuario.map((item) => {
-      const rifaInfo = rifaMap[item.rifa_id];
-      return {
-        numero: item.numero,
-        rifa_id: item.rifa_id,
-        titulo_rifa: rifaInfo?.titulo || "Rifa no encontrada",
-        total_numeros_rifa: rifaInfo?.total_numeros || 0
-      };
-    });
-
-    console.log("✅ RESPUESTA FINAL DE NÚMEROS:", {
-      total_numeros: respuesta.length,
-      rifas_unicas: [...new Set(respuesta.map(r => r.titulo_rifa))]
-    });
-
-    return res.json({ 
-      success: true, 
-      numeros: respuesta 
-    });
-
-  } catch (err) {
-    console.error("❌ Error obteniendo números del usuario:", err);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Error interno del servidor al obtener números." 
-    });
   }
 };
