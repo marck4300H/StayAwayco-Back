@@ -1013,27 +1013,67 @@ const generarContraseñaSegura = () => {
 };
 
 /**
- * Asignar números aleatorios
+ * Asignar números aleatorios - CORREGIDO
  */
 const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento) => {
   try {
-    const { data: numerosDisponibles, error } = await supabaseAdmin
-      .from("numeros")
-      .select("id, numero")
-      .eq("rifa_id", rifaId)
-      .is("comprado_por", null)
-      .limit(cantidad + 100);
+    console.log(`🔍 Buscando TODOS los números disponibles para rifa ${rifaId}...`);
+    
+    // ✅ OBTENER TODOS LOS NÚMEROS DISPONIBLES (sin límite)
+    let allNumerosDisponibles = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
 
-    if (error) throw error;
+    while (hasMore) {
+      const { data: batch, error: disponiblesError } = await supabaseAdmin
+        .from("numeros")
+        .select("id, numero")
+        .eq("rifa_id", rifaId)
+        .is("comprado_por", null)
+        .range(from, from + batchSize - 1);
 
-    if (numerosDisponibles.length < cantidad) {
-      throw new Error(`No hay suficientes números disponibles. Solicitados: ${cantidad}, Disponibles: ${numerosDisponibles.length}`);
+      if (disponiblesError) throw disponiblesError;
+
+      if (batch && batch.length > 0) {
+        allNumerosDisponibles = [...allNumerosDisponibles, ...batch];
+        from += batchSize;
+        console.log(`📦 Lote de números disponibles: ${batch.length}. Total acumulado: ${allNumerosDisponibles.length}`);
+      } else {
+        hasMore = false;
+      }
     }
 
-    const mezclados = [...numerosDisponibles].sort(() => Math.random() - 0.5);
-    const seleccionados = mezclados.slice(0, cantidad);
+    console.log(`🎯 TOTAL números disponibles encontrados: ${allNumerosDisponibles.length}`);
+
+    if (allNumerosDisponibles.length < cantidad) {
+      throw new Error(`No hay suficientes números disponibles. Solicitados: ${cantidad}, Disponibles: ${allNumerosDisponibles.length}`);
+    }
+
+    // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA DE TODOS LOS NÚMEROS
+    const mezclarArray = (array) => {
+      const shuffled = [...array];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    };
+
+    const numerosMezclados = mezclarArray(allNumerosDisponibles);
+    const seleccionados = numerosMezclados.slice(0, cantidad);
     const numerosIds = seleccionados.map(n => n.id);
     const numerosValores = seleccionados.map(n => n.numero).sort((a, b) => a - b);
+
+    // ✅ Calcular estadísticas para verificar aleatoriedad
+    const minSeleccionado = Math.min(...numerosValores.map(n => parseInt(n)));
+    const maxSeleccionado = Math.max(...numerosValores.map(n => parseInt(n)));
+    
+    console.log(`🎲 Números seleccionados ALEATORIAMENTE:`, {
+      cantidad: numerosValores.length,
+      rango: `${minSeleccionado} a ${maxSeleccionado}`,
+      numeros: numerosValores
+    });
 
     const { error: updateError } = await supabaseAdmin
       .from("numeros")
