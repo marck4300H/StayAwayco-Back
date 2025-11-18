@@ -843,7 +843,7 @@ const procesarPaymentWebhook = async (paymentId, res) => {
 };
 
 /**
- * Procesar compra exitosa
+ * Procesar compra exitosa - CORREGIDO (sin duplicados)
  */
 const procesarCompraExitosa = async (transaccion, orderData) => {
   try {
@@ -860,6 +860,7 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
       usuarioId = usuario.id;
       numeroDocumento = doc;
       
+      // ✅ Actualizar la transacción con el usuario_id
       await supabaseAdmin
         .from("transacciones_pagos")
         .update({
@@ -869,27 +870,22 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
         .eq("id", transaccion.id);
     }
 
-    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS
+    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS (solo una vez)
     const numerosAsignados = await asignarNumerosAleatorios(rifa_id, cantidad, usuarioId, numeroDocumento);
 
-    // ✅ 3. GUARDAR EN TABLA numeros_usuario
-    const numerosUsuarioData = numerosAsignados.map(numero => ({
-      numero,
-      rifa_id: rifa_id,
-      usuario_id: usuarioId,
-      numero_documento: numeroDocumento
-    }));
-
-    const { error: insertError } = await supabaseAdmin
-      .from("numeros_usuario")
-      .insert(numerosUsuarioData);
-
-    if (insertError) {
-      console.error("❌ Error insertando en numeros_usuario:", insertError);
-      throw insertError;
-    }
-
     console.log(`✅ Compra procesada exitosamente - Usuario: ${usuarioId}, Números: ${numerosAsignados.length}`);
+
+    // ✅ 3. ACTUALIZAR LA TRANSACCIÓN CON LOS NÚMEROS ASIGNADOS
+    await supabaseAdmin
+      .from("transacciones_pagos")
+      .update({
+        datos_respuesta: {
+          ...transaccion.datos_respuesta,
+          numeros_asignados: numerosAsignados,
+          cantidad_entregada: numerosAsignados.length
+        }
+      })
+      .eq("id", transaccion.id);
 
   } catch (error) {
     console.error("❌ Error procesando compra exitosa:", error);
@@ -977,8 +973,8 @@ const crearOBuscarUsuario = async (datosUsuario) => {
     console.log("🔐 Contraseña generada:", passwordPlana);
 
     return { 
-      usuario, 
-      doc: usuario.numero_documento 
+        usuario, 
+        doc: usuario.numero_documento 
     };
 
   } catch (error) {
@@ -1075,6 +1071,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
       numeros: numerosValores
     });
 
+    // ✅ ACTUALIZAR SOLO LA TABLA 'numeros' (NO insertar en numeros_usuario)
     const { error: updateError } = await supabaseAdmin
       .from("numeros")
       .update({
