@@ -503,7 +503,7 @@ const procesarTransaccionConOrder = async (transaccion, orderData, webhookId) =>
 };
 
 /**
- * Procesar compra exitosa - CON ANTI-DUPLICACIÓN COMPLETA
+ * Procesar compra exitosa - CORREGIDO: Solo verificar duplicación en MISMA transacción
  */
 const procesarCompraExitosa = async (transaccion, orderData, webhookId) => {
   try {
@@ -511,11 +511,11 @@ const procesarCompraExitosa = async (transaccion, orderData, webhookId) => {
 
     const { rifa_id, cantidad, datos_usuario, usuario_documento } = transaccion;
 
-    // ✅ VERIFICACIÓN ANTI-DUPLICACIÓN: Chequear si YA se procesó
+    // ✅ VERIFICACIÓN CORREGIDA: Solo chequear si ESTA transacción específica ya tiene números
     const { data: transaccionVerificada } = await supabaseAdmin
       .from("transacciones_pagos")
       .select("datos_respuesta")
-      .eq("referencia", transaccion.referencia)
+      .eq("referencia", transaccion.referencia) // ← Solo esta referencia específica
       .single();
 
     if (transaccionVerificada?.datos_respuesta?.numeros_asignados) {
@@ -541,10 +541,10 @@ const procesarCompraExitosa = async (transaccion, orderData, webhookId) => {
         .eq("id", transaccion.id);
     }
 
-    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS (con verificación anti-duplicación)
+    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS (con verificación corregida)
     const numerosAsignados = await asignarNumerosAleatorios(rifa_id, cantidad, usuarioId, numeroDocumento, webhookId);
 
-    console.log(`✅ [${webhookId}] Compra procesada - Usuario: ${usuarioId}, Números: ${numerosAsignados.length}`);
+    console.log(`✅ [${webhookId}] Compra procesada - Usuario: ${usuarioId}, Números NUEVOS: ${numerosAsignados.length}`);
 
     // ✅ 3. ACTUALIZAR LA TRANSACCIÓN CON LOS NÚMEROS ASIGNADOS
     await supabaseAdmin
@@ -565,25 +565,40 @@ const procesarCompraExitosa = async (transaccion, orderData, webhookId) => {
     throw error;
   }
 };
-
 /**
- * Asignar números aleatorios - CON ANTI-DUPLICACIÓN ROBUSTA
+ * Asignar números aleatorios - CORREGIDO: Solo verificar duplicación en MISMA transacción
  */
 const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento, webhookId) => {
   try {
     console.log(`🔍 [${webhookId}] Buscando ${cantidad} números para rifa ${rifaId}...`);
 
-    // ✅ VERIFICACIÓN CRÍTICA: Chequear si el usuario YA tiene números para esta rifa
-    const { data: numerosExistentes } = await supabaseAdmin
-      .from("numeros_usuario")
-      .select("numero")
+    // ✅ VERIFICACIÓN CORREGIDA: Solo chequear si YA se procesó ESTA MISMA transacción
+    // Buscar en transacciones_pagos si esta transacción específica ya tiene números asignados
+    const { data: transaccionExistente, error: transaccionError } = await supabaseAdmin
+      .from("transacciones_pagos")
+      .select("datos_respuesta")
       .eq("usuario_id", usuarioId)
-      .eq("rifa_id", rifaId);
+      .eq("rifa_id", rifaId)
+      .eq("estado", "aprobado")
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-    if (numerosExistentes && numerosExistentes.length > 0) {
-      console.log(`⚠️ [${webhookId}] Usuario YA TIENE ${numerosExistentes.length} números. EVITANDO DUPLICACIÓN.`);
-      return numerosExistentes.map(n => n.numero);
+    if (transaccionError) {
+      console.error(`❌ [${webhookId}] Error verificando transacción existente:`, transaccionError);
     }
+
+    // ✅ SOLO evitar si la MISMA transacción ya tiene números
+    if (transaccionExistente && transaccionExistente.length > 0) {
+      const transaccion = transaccionExistente[0];
+      if (transaccion.datos_respuesta?.numeros_asignados) {
+        console.log(`⚠️ [${webhookId}] Esta transacción YA tiene números asignados. EVITANDO DUPLICACIÓN.`);
+        return transaccion.datos_respuesta.numeros_asignados;
+      }
+    }
+
+    // ✅ PERMITIR que el usuario compre MÁS números en la MISMA rifa
+    // (esto es normal, un usuario puede comprar múltiples veces en la misma rifa)
+    console.log(`✅ [${webhookId}] Usuario puede comprar ${cantidad} números adicionales en esta rifa`);
 
     // ✅ OBTENER NÚMEROS DISPONIBLES
     const { data: numerosDisponibles, error: disponiblesError } = await supabaseAdmin
@@ -656,7 +671,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
       throw insertError;
     }
 
-    console.log(`✅ [${webhookId}] ${cantidad} números asignados SIN DUPLICACIÓN`);
+    console.log(`✅ [${webhookId}] ${cantidad} números NUEVOS asignados correctamente`);
     return numerosValores;
 
   } catch (error) {
@@ -664,7 +679,6 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
     throw error;
   }
 };
-
 // ... (las otras funciones auxiliares se mantienen igual, pero con los webhookId)
 const procesarWebhookDePrueba = async (orderData) => {
   try {
