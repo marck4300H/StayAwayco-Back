@@ -8,20 +8,22 @@ export const upload = multer({ storage });
 
 export const crearRifa = async (req, res) => {
   try {
-    const { titulo, descripcion, cantidad_numeros } = req.body;
+    const { titulo, descripcion, cantidad_numeros, precio_unitario, cantidad_minima } = req.body;
     const archivo = req.file;
 
     console.log("📝 Datos recibidos para crear rifa:", {
       titulo,
       descripcion,
       cantidad_numeros,
+      precio_unitario,
+      cantidad_minima,
       archivo: archivo ? `Sí (${archivo.originalname})` : 'No'
     });
 
-    if (!titulo || !descripcion || !cantidad_numeros) {
+    if (!titulo || !descripcion || !cantidad_numeros || !precio_unitario || !cantidad_minima) {
       return res.status(400).json({ 
         success: false, 
-        message: "Faltan campos obligatorios: título, descripción o cantidad de números." 
+        message: "Faltan campos obligatorios: título, descripción, cantidad de números, precio unitario o cantidad mínima." 
       });
     }
     if (!archivo) {
@@ -37,6 +39,24 @@ export const crearRifa = async (req, res) => {
       return res.status(400).json({ 
         success: false, 
         message: "La cantidad de números debe ser 10,000 o 100,000." 
+      });
+    }
+
+    // ✅ VALIDAR PRECIO UNITARIO Y CANTIDAD MÍNIMA
+    const precio = parseInt(precio_unitario, 10);
+    const minCantidad = parseInt(cantidad_minima, 10);
+    
+    if (precio < 100) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "El precio unitario debe ser al menos $100." 
+      });
+    }
+
+    if (minCantidad < 1) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "La cantidad mínima debe ser al menos 1." 
       });
     }
 
@@ -68,6 +88,8 @@ export const crearRifa = async (req, res) => {
         titulo, 
         descripcion, 
         cantidad_numeros: cantidad, 
+        precio_unitario: precio,
+        cantidad_minima: minCantidad,
         imagen_url: publicUrl 
       }])
       .select();
@@ -203,12 +225,12 @@ export const listarRifas = async (req, res) => {
 export const editarRifa = async (req, res) => {
   try {
     const { id } = req.params;
-    const { titulo, descripcion, cantidad_numeros } = req.body;
+    const { titulo, descripcion, cantidad_numeros, precio_unitario, cantidad_minima } = req.body;
     const archivo = req.file;
 
-    console.log("✏️ Editando rifa:", { id, titulo, descripcion, cantidad_numeros });
+    console.log("✏️ Editando rifa:", { id, titulo, descripcion, cantidad_numeros, precio_unitario, cantidad_minima });
 
-    if (!titulo || !descripcion || !cantidad_numeros) {
+    if (!titulo || !descripcion || !cantidad_numeros || !precio_unitario || !cantidad_minima) {
       return res.status(400).json({ 
         success: false, 
         message: "Faltan campos obligatorios." 
@@ -221,6 +243,24 @@ export const editarRifa = async (req, res) => {
       return res.status(400).json({ 
         success: false, 
         message: "La cantidad de números debe ser 10,000 o 100,000." 
+      });
+    }
+
+    // ✅ VALIDAR PRECIO UNITARIO Y CANTIDAD MÍNIMA
+    const precio = parseInt(precio_unitario, 10);
+    const minCantidad = parseInt(cantidad_minima, 10);
+    
+    if (precio < 100) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "El precio unitario debe ser al menos $100." 
+      });
+    }
+
+    if (minCantidad < 1) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "La cantidad mínima debe ser al menos 1." 
       });
     }
 
@@ -249,6 +289,8 @@ export const editarRifa = async (req, res) => {
       titulo,
       descripcion,
       cantidad_numeros: cantidad,
+      precio_unitario: precio,
+      cantidad_minima: minCantidad,
       ...(publicUrl && { imagen_url: publicUrl })
     };
 
@@ -283,6 +325,7 @@ export const editarRifa = async (req, res) => {
   }
 };
 
+// ... (el resto del código permanece igual)
 export const eliminarRifa = async (req, res) => {
   try {
     const { id } = req.params;

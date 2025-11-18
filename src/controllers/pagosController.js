@@ -1009,7 +1009,7 @@ const generarContraseñaSegura = () => {
 };
 
 /**
- * Asignar números aleatorios - CORREGIDO
+ * Asignar números aleatorios - CORREGIDO Y MEJORADO
  */
 const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento) => {
   try {
@@ -1059,7 +1059,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
     const numerosMezclados = mezclarArray(allNumerosDisponibles);
     const seleccionados = numerosMezclados.slice(0, cantidad);
     const numerosIds = seleccionados.map(n => n.id);
-    const numerosValores = seleccionados.map(n => n.numero).sort((a, b) => a - b);
+    const numerosValores = seleccionados.map(n => n.numero).sort((a, b) => parseInt(a) - parseInt(b));
 
     // ✅ Calcular estadísticas para verificar aleatoriedad
     const minSeleccionado = Math.min(...numerosValores.map(n => parseInt(n)));
@@ -1071,7 +1071,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
       numeros: numerosValores
     });
 
-    // ✅ ACTUALIZAR SOLO LA TABLA 'numeros' (NO insertar en numeros_usuario)
+    // ✅ ACTUALIZAR LA TABLA 'numeros' con el usuario_id
     const { error: updateError } = await supabaseAdmin
       .from("numeros")
       .update({
@@ -1082,7 +1082,24 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
 
     if (updateError) throw updateError;
 
-    console.log(`✅ ${cantidad} números asignados aleatoriamente:`, numerosValores);
+    // ✅ ✅ CORRECCIÓN CRÍTICA: INSERTAR EN numeros_usuario también
+    const numerosUsuarioData = seleccionados.map(numero => ({
+      numero: numero.numero,
+      numero_documento: numeroDocumento,
+      usuario_id: usuarioId,
+      rifa_id: rifaId
+    }));
+
+    const { error: insertError } = await supabaseAdmin
+      .from("numeros_usuario")
+      .insert(numerosUsuarioData);
+
+    if (insertError) {
+      console.error("❌ Error insertando en numeros_usuario:", insertError);
+      throw insertError;
+    }
+
+    console.log(`✅ ${cantidad} números asignados aleatoriamente e insertados en ambas tablas:`, numerosValores);
     return numerosValores;
 
   } catch (error) {
