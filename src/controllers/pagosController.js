@@ -30,7 +30,7 @@ if (!process.env.MP_ACCESS_TOKEN) {
 }
 
 /**
- * Crear orden de pago en Mercado Pago - CORREGIDO
+ * Crear orden de pago en Mercado Pago - CORREGIDO CON PRECIO DINÁMICO
  */
 export const crearOrdenPago = async (req, res) => {
   try {
@@ -61,10 +61,10 @@ export const crearOrdenPago = async (req, res) => {
       });
     }
 
-    // ✅ Obtener información de la rifa
+    // ✅ Obtener información de la rifa CON PRECIO UNITARIO
     const { data: rifa, error: rifaError } = await supabaseAdmin
       .from("rifas")
-      .select("id, titulo, cantidad_numeros")
+      .select("id, titulo, cantidad_numeros, precio_unitario, cantidad_minima")
       .eq("id", rifaId)
       .single();
 
@@ -72,6 +72,18 @@ export const crearOrdenPago = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Rifa no encontrada."
+      });
+    }
+
+    // ✅ Usar precio unitario de la rifa (con valor por defecto si no existe)
+    const precioUnitario = rifa.precio_unitario || 1000;
+    const cantidadMinima = rifa.cantidad_minima || 5;
+
+    // ✅ Validar cantidad mínima de la rifa
+    if (cantidad < cantidadMinima) {
+      return res.status(400).json({
+        success: false,
+        message: `La cantidad mínima para esta rifa es ${cantidadMinima} números.`
       });
     }
 
@@ -89,20 +101,20 @@ export const crearOrdenPago = async (req, res) => {
       });
     }
 
-    // ✅ Calcular precio (1000 por número)
-    const precioUnitario = 1000;
+    // ✅ Calcular precio CON PRECIO UNITARIO DINÁMICO
     const total = cantidad * precioUnitario;
 
     // ✅ Generar referencia única
     const referencia = `RIFA-${rifaId.slice(0, 8)}-${Date.now()}`;
     const invoice = `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // ✅ Guardar transacción pendiente
+    // ✅ Guardar transacción pendiente CON PRECIO UNITARIO
     const transaccionData = {
       referencia,
       invoice,
       rifa_id: rifaId,
       cantidad,
+      precio_unitario: precioUnitario, // ← GUARDAR PRECIO UNITARIO
       valor_total: total,
       estado: 'pendiente',
       usuario_documento: usuario?.numero_documento || null,
@@ -142,7 +154,7 @@ export const crearOrdenPago = async (req, res) => {
         {
           id: rifaId,
           title: `Rifa: ${rifa.titulo} - ${cantidad} números`,
-          description: `Compra de ${cantidad} números para la rifa "${rifa.titulo}"`,
+          description: `Compra de ${cantidad} números para la rifa "${rifa.titulo}" (Precio unitario: $${precioUnitario.toLocaleString()})`,
           quantity: 1,
           unit_price: total,
           currency_id: "COP"
@@ -211,6 +223,8 @@ export const crearOrdenPago = async (req, res) => {
         referencia,
         invoice,
         total,
+        precioUnitario, // ← ENVIAR PRECIO UNITARIO AL FRONTEND
+        cantidadMinima, // ← ENVIAR CANTIDAD MÍNIMA AL FRONTEND
         rifaTitulo: rifa.titulo,
         cantidad
       }
