@@ -5,8 +5,29 @@ import bcrypt from "bcrypt";
 // ✅ CONFIGURACIÓN CORRECTA para mercadopago@2.10.0
 const client = new MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN,
-  options: { timeout: 5000 }
+  options: { 
+    timeout: 5000,
+    idempotencyKey: true 
+  }
 });
+
+// ✅ CLIENTES PARA CADA SERVICIO
+const preferenceClient = new Preference(client);
+const paymentClient = new Payment(client);
+
+// ✅ Función auxiliar para headers de autenticación
+const getAuthHeaders = () => ({
+  'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+  'Content-Type': 'application/json'
+});
+
+// ✅ Verificar credenciales al iniciar
+console.log("🔐 Verificando credenciales Mercado Pago...");
+if (!process.env.MP_ACCESS_TOKEN) {
+  console.error("❌ MP_ACCESS_TOKEN no configurado en variables de entorno");
+} else {
+  console.log("✅ MP_ACCESS_TOKEN configurado correctamente");
+}
 
 /**
  * Crear orden de pago en Mercado Pago - CORREGIDO
@@ -22,6 +43,15 @@ export const crearOrdenPago = async (req, res) => {
     } = req.body;
 
     console.log("🛒 Creando orden de pago:", { rifaId, cantidad, usuario });
+
+    // ✅ VERIFICAR CREDENCIALES
+    if (!process.env.MP_ACCESS_TOKEN) {
+      console.error("❌ MP_ACCESS_TOKEN no configurado");
+      return res.status(500).json({
+        success: false,
+        message: "Error de configuración del servidor - Credenciales no configuradas"
+      });
+    }
 
     // ✅ Validaciones básicas
     if (!rifaId || !cantidad || cantidad < 5) {
@@ -107,8 +137,6 @@ export const crearOrdenPago = async (req, res) => {
     });
 
     // ✅ Crear preferencia en Mercado Pago
-    const preference = new Preference(client);
-
     const body = {
       items: [
         {
@@ -154,7 +182,8 @@ export const crearOrdenPago = async (req, res) => {
     console.log("📦 Creando preferencia en Mercado Pago...");
     console.log("📋 Body de la preferencia:", JSON.stringify(body, null, 2));
 
-    const response = await preference.create({ body });
+    // ✅ USAR PREFERENCE CLIENT CORRECTAMENTE
+    const response = await preferenceClient.create({ body });
 
     // ✅ Actualizar transacción con ID de Mercado Pago
     await supabaseAdmin
@@ -191,6 +220,14 @@ export const crearOrdenPago = async (req, res) => {
     console.error("❌ Error creando orden de pago:", error);
     
     // ✅ Manejo específico de errores de Mercado Pago
+    if (error.status === 401) {
+      console.error("❌ Error 401 - Token de Mercado Pago inválido o expirado");
+      return res.status(500).json({
+        success: false,
+        message: "Error de autenticación con Mercado Pago. Contacte al administrador."
+      });
+    }
+    
     if (error.status === 400) {
       return res.status(400).json({
         success: false,
@@ -498,6 +535,15 @@ const procesarMerchantOrderWebhook = async (resourceUrl, res) => {
   try {
     console.log("🔗 Obteniendo merchant order desde:", resourceUrl);
     
+    // ✅ VERIFICAR CREDENCIALES
+    if (!process.env.MP_ACCESS_TOKEN) {
+      console.error("❌ MP_ACCESS_TOKEN no configurado para merchant order");
+      return res.status(200).json({ 
+        success: false, 
+        message: "Credenciales no configuradas" 
+      });
+    }
+
     // Extraer el ID de merchant order de la URL
     const merchantOrderId = resourceUrl.split('/').pop();
     console.log("🎯 Merchant Order ID:", merchantOrderId);
@@ -513,13 +559,15 @@ const procesarMerchantOrderWebhook = async (resourceUrl, res) => {
     console.log("📡 Consultando merchant order a:", merchantOrderUrl);
     
     const response = await fetch(merchantOrderUrl, {
-      headers: {
-        'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
+      headers: getAuthHeaders() // ✅ USAR HEADERS CORRECTOS
     });
 
     if (!response.ok) {
+      // ✅ MANEJO MEJORADO DE ERRORES DE AUTENTICACIÓN
+      if (response.status === 401) {
+        console.error("❌ Error 401 - Token de acceso inválido o expirado");
+        throw new Error("Token de Mercado Pago inválido o expirado");
+      }
       throw new Error(`Error obteniendo merchant order: ${response.status}`);
     }
 
@@ -657,6 +705,15 @@ const procesarPaymentWebhook = async (paymentId, res) => {
   try {
     console.log("💳 Procesando payment con ID:", paymentId);
     
+    // ✅ VERIFICAR CREDENCIALES
+    if (!process.env.MP_ACCESS_TOKEN) {
+      console.error("❌ MP_ACCESS_TOKEN no configurado para payment");
+      return res.status(200).json({ 
+        success: false, 
+        message: "Credenciales no configuradas" 
+      });
+    }
+
     // Para pruebas, manejamos los payment IDs de prueba
     if (paymentId === 'PAY01K7S9596QBWZRTY02NF' || paymentId.includes('TEST')) {
       console.log("🧪 Procesando payment de prueba:", paymentId);
@@ -667,8 +724,8 @@ const procesarPaymentWebhook = async (paymentId, res) => {
       });
     }
 
-    const payment = new Payment(client);
-    const paymentData = await payment.get({ 
+    // ✅ USAR PAYMENT CLIENT CORRECTAMENTE
+    const paymentData = await paymentClient.get({ 
       id: paymentId,
       requestOptions: { timeout: 10000 }
     });
@@ -770,6 +827,11 @@ const procesarPaymentWebhook = async (paymentId, res) => {
         success: true, 
         message: "Webhook de prueba procesado (payment simulado)" 
       });
+    }
+    
+    // Manejo específico de errores de autenticación
+    if (error.status === 401) {
+      console.error("❌ Error 401 - Token de Mercado Pago inválido o expirado");
     }
     
     // Siempre retornar 200 a Mercado Pago
