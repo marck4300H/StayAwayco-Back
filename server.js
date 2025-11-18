@@ -6,8 +6,7 @@ import rifasRoutes from "./src/routes/rifas.js";
 import numerosRoutes from "./src/routes/numeros.js";
 import adminRoutes from "./src/routes/admin.js";
 import usuariosRoutes from "./src/routes/usuarios.js";
-import comprasRoutes from "./src/routes/compras.js";
-import pagosRoutes from "./src/routes/pagos.js"; // ✅ NUEVA RUTA
+import pagosRoutes from "./src/routes/pagos.js"; // ✅ Solo pagos
 
 dotenv.config();
 const app = express();
@@ -36,15 +35,14 @@ app.use(
 );
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // ✅ Para webhooks
+app.use(express.urlencoded({ extended: true }));
 
-// ✅ RUTAS
+// ✅ RUTAS ACTUALIZADAS (sin compras)
 app.use("/api/rifas", rifasRoutes);
 app.use("/api/numeros", numerosRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/usuarios", usuariosRoutes);
-app.use("/api/comprar", comprasRoutes);
-app.use("/api/pagos", pagosRoutes); // ✅ NUEVA RUTA
+app.use("/api/pagos", pagosRoutes); // ✅ Solo pagos
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor corriendo en puerto ${PORT}`));
