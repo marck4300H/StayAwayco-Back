@@ -252,7 +252,7 @@ export const crearOrdenPago = async (req, res) => {
 };
 
 /**
- * Webhook para recibir notificaciones de Mercado Pago
+ * Webhook para recibir notificaciones de Mercado Pago - CORREGIDO
  */
 export const webhookHandler = async (req, res) => {
   try {
@@ -265,16 +265,25 @@ export const webhookHandler = async (req, res) => {
 
     console.log("🔍 Datos extraídos:", { type, topic, action, data, resource, id });
 
-    // ✅ CASO 1: Webhook de tipo "payment" (el que estás recibiendo)
+    // ✅ SOLUCIÓN CRÍTICA: EVITAR PROCESAMIENTO DUPLICADO
+    // Mercado Pago envía múltiples webhooks para el mismo pago
+    // Debemos asegurarnos de que solo UNO procese la compra
+
+    // ✅ CASO 1: Webhook de tipo "payment" (PRINCIPAL)
     if (type === 'payment' && data?.id) {
-      console.log("💰 Procesando webhook de payment");
+      console.log("💰 Procesando webhook de payment (PRINCIPAL)");
       return await procesarPaymentWebhook(data.id, res);
     }
 
-    // ✅ CASO 2: Webhook de tipo "merchant_order"
+    // ✅ CASO 2: Webhook de tipo "merchant_order" (SECUNDARIO - SOLO LOG, NO PROCESAR)
     if (topic === 'merchant_order' && resource) {
-      console.log("💰 Procesando webhook de merchant_order");
-      return await procesarMerchantOrderWebhook(resource, res);
+      console.log("📦 Webhook de merchant_order recibido - SOLO REGISTRO, NO PROCESAMIENTO");
+      // ❌ NO procesar merchant_order para evitar duplicación
+      // Solo registrar que llegó y retornar éxito
+      return res.status(200).json({ 
+        success: true, 
+        message: "Webhook merchant_order recibido (no se procesa para evitar duplicación)" 
+      });
     }
 
     console.log("❌ Webhook no reconocido - Estructura:", Object.keys(req.body));
@@ -298,7 +307,7 @@ export const webhookHandler = async (req, res) => {
 };
 
 /**
- * Procesar payment webhook
+ * Procesar payment webhook - MEJORADO CON VERIFICACIÓN DE ESTADO
  */
 const procesarPaymentWebhook = async (paymentId, res) => {
   try {
@@ -363,6 +372,15 @@ const procesarPaymentWebhook = async (paymentId, res) => {
     }
 
     console.log("✅ Transacción encontrada:", transaccion.id);
+
+    // ✅ VERIFICACIÓN CRÍTICA: Si ya está aprobada y tiene números, NO PROCESAR DE NUEVO
+    if (transaccion.estado === 'aprobado' && transaccion.datos_respuesta?.numeros_asignados) {
+      console.log("✅ Transacción YA PROCESADA - Evitando duplicación");
+      return res.status(200).json({ 
+        success: true, 
+        message: "Transacción ya procesada anteriormente" 
+      });
+    }
 
     // ✅ Determinar estado basado en el payment
     let nuevoEstado = 'pendiente';
@@ -436,181 +454,17 @@ const procesarPaymentWebhook = async (paymentId, res) => {
 };
 
 /**
- * Procesar merchant order desde URL resource
- */
-const procesarMerchantOrderWebhook = async (resourceUrl, res) => {
-  try {
-    console.log("🔗 Obteniendo merchant order desde:", resourceUrl);
-    
-    // ✅ VERIFICAR CREDENCIALES
-    if (!process.env.MP_ACCESS_TOKEN) {
-      console.error("❌ MP_ACCESS_TOKEN no configurado para merchant order");
-      return res.status(200).json({ 
-        success: false, 
-        message: "Credenciales no configuradas" 
-      });
-    }
-
-    // Extraer el ID de merchant order de la URL
-    const merchantOrderId = resourceUrl.split('/').pop();
-    console.log("🎯 Merchant Order ID:", merchantOrderId);
-
-    if (!merchantOrderId) {
-      throw new Error("No se pudo extraer el ID de merchant order de la URL");
-    }
-
-    // ✅ CORREGIDO: Usar fetch para obtener la merchant order directamente
-    const merchantOrderUrl = `https://api.mercadopago.com/merchant_orders/${merchantOrderId}`;
-    
-    console.log("📡 Consultando merchant order a:", merchantOrderUrl);
-    
-    const response = await fetch(merchantOrderUrl, {
-      headers: {
-        'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        console.error("❌ Error 401 - Token de acceso inválido o expirado");
-        throw new Error("Token de Mercado Pago inválido o expirado");
-      }
-      throw new Error(`Error obteniendo merchant order: ${response.status}`);
-    }
-
-    const merchantOrderData = await response.json();
-    
-    console.log("✅ Información de merchant order obtenida:", {
-      id: merchantOrderData.id,
-      status: merchantOrderData.status,
-      external_reference: merchantOrderData.external_reference,
-      order_status: merchantOrderData.order_status,
-      payments: merchantOrderData.payments?.length || 0
-    });
-
-    // ✅ Procesar la merchant order
-    return await procesarMerchantOrderCompleta(merchantOrderData, res);
-
-  } catch (error) {
-    console.error("❌ Error procesando merchant order:", error);
-    
-    // Siempre retornar 200 a Mercado Pago
-    return res.status(200).json({ 
-      success: true, 
-      message: "Webhook recibido" 
-    });
-  }
-};
-
-/**
- * Procesar merchant order completa
- */
-const procesarMerchantOrderCompleta = async (merchantOrderData, res) => {
-  try {
-    const referencia = merchantOrderData.external_reference;
-    
-    if (!referencia) {
-      console.error("❌ No se encontró external_reference en la merchant order");
-      return res.status(200).json({ 
-        success: false, 
-        message: "External reference no encontrado" 
-      });
-    }
-
-    console.log("🔍 Buscando transacción con referencia:", referencia);
-
-    // ✅ Buscar la transacción en nuestra base de datos
-    const { data: transaccion, error: transError } = await supabaseAdmin
-      .from("transacciones_pagos")
-      .select("*")
-      .eq("referencia", referencia)
-      .single();
-
-    if (transError || !transaccion) {
-      console.error("❌ Transacción no encontrada:", referencia);
-      return res.status(200).json({ 
-        success: false, 
-        message: "Transacción no encontrada" 
-      });
-    }
-
-    console.log("✅ Transacción encontrada:", transaccion.id);
-
-    // ✅ Determinar estado basado en la merchant order
-    let nuevoEstado = 'pendiente';
-    let esAprobado = false;
-
-    if (merchantOrderData.order_status === 'paid') {
-      nuevoEstado = 'aprobado';
-      esAprobado = true;
-    } else if (merchantOrderData.order_status === 'pending') {
-      nuevoEstado = 'pendiente';
-    } else if (merchantOrderData.order_status === 'cancelled') {
-      nuevoEstado = 'cancelado';
-    } else if (merchantOrderData.order_status === 'expired') {
-      nuevoEstado = 'expirado';
-    }
-
-    console.log("📊 Estado determinado:", { 
-      order_status: merchantOrderData.order_status,
-      estado_final: nuevoEstado
-    });
-
-    const updateData = {
-      estado: nuevoEstado,
-      datos_respuesta: merchantOrderData,
-      actualizado_en: new Date()
-    };
-
-    // ✅ Si está aprobado, procesar la compra
-    if (esAprobado) {
-      updateData.fecha_aprobacion = new Date();
-      
-      // Obtener información del payment
-      const payments = merchantOrderData.payments || [];
-      if (payments.length > 0) {
-        const payment = payments[0];
-        updateData.metodo_pago = payment.payment_method_id;
-        updateData.referencia_pago = payment.id;
-      }
-
-      console.log("🎉 Merchant order pagada, procesando compra...");
-      await procesarCompraExitosa(transaccion, merchantOrderData);
-    }
-
-    // ✅ Actualizar la transacción en la base de datos
-    const { error: updateError } = await supabaseAdmin
-      .from("transacciones_pagos")
-      .update(updateData)
-      .eq("referencia", referencia);
-
-    if (updateError) {
-      console.error("❌ Error actualizando transacción:", updateError);
-      throw updateError;
-    }
-
-    console.log(`✅ Merchant order procesada exitosamente - Transacción: ${referencia}, Estado: ${nuevoEstado}`);
-
-    return res.status(200).json({ 
-      success: true, 
-      message: `Merchant order procesada. Estado: ${nuevoEstado}`,
-      transaccion: referencia,
-      estado: nuevoEstado
-    });
-
-  } catch (error) {
-    console.error("❌ Error procesando merchant order completa:", error);
-    throw error;
-  }
-};
-
-/**
- * Procesar compra exitosa - FUNCIONAL
+ * Procesar compra exitosa - CORREGIDO SIN DUPLICACIÓN
  */
 const procesarCompraExitosa = async (transaccion, orderData) => {
   try {
     console.log("🎉 Procesando compra exitosa:", transaccion.referencia);
+
+    // ✅ VERIFICACIÓN EXTRA: Revisar si ya se asignaron números
+    if (transaccion.datos_respuesta?.numeros_asignados) {
+      console.log("⚠️ Ya hay números asignados para esta transacción. Evitando duplicación.");
+      return;
+    }
 
     const { rifa_id, cantidad, datos_usuario, usuario_documento } = transaccion;
 
@@ -633,8 +487,8 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
         .eq("id", transaccion.id);
     }
 
-    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS (con anti-duplicación simple)
-    const numerosAsignados = await asignarNumerosAleatorios(rifa_id, cantidad, usuarioId, numeroDocumento);
+    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS (con anti-duplicación robusta)
+    const numerosAsignados = await asignarNumerosAleatorios(rifa_id, cantidad, usuarioId, numeroDocumento, transaccion.referencia);
 
     console.log(`✅ Compra procesada exitosamente - Usuario: ${usuarioId}, Números: ${numerosAsignados.length}`);
 
@@ -657,24 +511,24 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
 };
 
 /**
- * Asignar números aleatorios - CORREGIDO SIN DUPLICACIÓN
+ * Asignar números aleatorios - CORREGIDO CON ANTI-DUPLICACIÓN ROBUSTA
  */
-const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento) => {
+const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento, referenciaTransaccion) => {
   try {
     console.log(`🔍 Buscando ${cantidad} números disponibles para rifa ${rifaId}...`);
     
-    // ✅ VERIFICACIÓN ANTI-DUPLICACIÓN SIMPLE: Usar transaccionesProcesando
-    const procesamientoKey = `${rifaId}-${usuarioId}-${Date.now()}`;
+    // ✅ VERIFICACIÓN ANTI-DUPLICACIÓN ROBUSTA: Usar referencia de transacción
+    const procesamientoKey = `asignacion-${referenciaTransaccion}`;
     if (transaccionesProcesando.has(procesamientoKey)) {
-      console.log(`⚠️ Ya se está procesando una compra para este usuario en esta rifa. Ignorando duplicado.`);
-      return []; // Retornar array vacío para evitar duplicación
+      console.log(`⚠️ Esta transacción ya se está procesando. Ignorando duplicado.`);
+      return [];
     }
 
     // ✅ Marcar como en proceso
     transaccionesProcesando.add(procesamientoKey);
 
     try {
-      // ✅ OBTENER TODOS LOS NÚMEROS DISPONIBLES (sin límite)
+      // ✅ OBTENER NÚMEROS DISPONIBLES
       let allNumerosDisponibles = [];
       let from = 0;
       const batchSize = 1000;
@@ -704,7 +558,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
         throw new Error(`No hay suficientes números disponibles. Solicitados: ${cantidad}, Disponibles: ${allNumerosDisponibles.length}`);
       }
 
-      // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA DE TODOS LOS NÚMEROS
+      // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA
       const mezclarArray = (array) => {
         const shuffled = [...array];
         for (let i = shuffled.length - 1; i > 0; i--) {
@@ -721,7 +575,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
 
       console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE:`, numerosValores);
 
-      // ✅ SOLUCIÓN: ACTUALIZAR SOLO LA TABLA 'numeros' - ELIMINADA LA DUPLICACIÓN
+      // ✅ SOLUCIÓN: ACTUALIZAR SOLO LA TABLA 'numeros' - SIN DUPLICACIÓN
       const { error: updateError } = await supabaseAdmin
         .from("numeros")
         .update({
@@ -736,10 +590,8 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
       return numerosValores;
 
     } finally {
-      // ✅ Siempre liberar el bloqueo después de 5 segundos (por si acaso)
-      setTimeout(() => {
-        transaccionesProcesando.delete(procesamientoKey);
-      }, 5000);
+      // ✅ Siempre liberar el bloqueo
+      transaccionesProcesando.delete(procesamientoKey);
     }
 
   } catch (error) {
