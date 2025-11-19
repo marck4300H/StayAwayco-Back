@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "../../supabaseAdminClient.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { enviarCorreoRecuperacion } from '../services/emailService.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -316,7 +317,7 @@ export const editarPerfil = async (req, res) => {
   try {
     const usuarioReq = req.usuario;
     
-    // ✅ COMPATIBILIDAD: Usar id (nuevo) O numero_documento (antiguo)
+    // ✅ COMPATIBILIDAD: Usar id (nuevo) O por numero_documento (antiguo)
     let condicionBusqueda;
     
     if (usuarioReq.id) {
@@ -386,7 +387,7 @@ export const eliminarUsuario = async (req, res) => {
   try {
     const usuarioReq = req.usuario;
     
-    // ✅ COMPATIBILIDAD: Usar id (nuevo) O numero_documento (antiguo)
+    // ✅ COMPATIBILIDAD: Usar id (nuevo) O por numero_documento (antiguo)
     let condicionBusqueda;
     
     if (usuarioReq.id) {
@@ -420,5 +421,244 @@ export const eliminarUsuario = async (req, res) => {
   } catch (err) {
     console.error("❌ Error al eliminar usuario:", err);
     res.status(500).json({ success: false, message: "Error al eliminar usuario." });
+  }
+};
+
+// 🔐 SISTEMA DE RECUPERACIÓN DE CONTRASEÑA CON RESEND
+export const solicitarRecuperacion = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "El correo electrónico es requerido"
+      });
+    }
+
+    console.log("🔐 Solicitud de recuperación para:", email);
+
+    // Buscar usuario
+    const { data: usuario, error } = await supabaseAdmin
+      .from("usuarios")
+      .select("id, nombres, correo_electronico")
+      .eq("correo_electronico", email)
+      .single();
+
+    if (error || !usuario) {
+      // Por seguridad, no revelar si el email existe o no
+      console.log("📧 Email no encontrado (por seguridad no se revela)");
+      return res.json({
+        success: true,
+        message: "Si el email existe, recibirás instrucciones para restablecer tu contraseña"
+      });
+    }
+
+    // Generar token de recuperación (expira en 1 hora)
+    const tokenRecuperacion = jwt.sign(
+      { 
+        userId: usuario.id, 
+        tipo: 'password_reset',
+        timestamp: Date.now()
+      },
+      JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    console.log("✅ Token de recuperación generado para usuario:", usuario.id);
+
+    // ✅ ENVIAR CORREO DE RECUPERACIÓN CON RESEND
+    const emailResult = await enviarCorreoRecuperacion(usuario, tokenRecuperacion);
+
+    if (!emailResult.success) {
+      console.error("❌ Error enviando correo de recuperación:", emailResult.error);
+      // No revelar el error al usuario por seguridad
+    }
+
+    res.json({
+      success: true,
+      message: "Si el email existe, recibirás instrucciones para restablecer tu contraseña"
+    });
+
+  } catch (error) {
+    console.error("❌ Error en recuperación:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor"
+    });
+  }
+};
+
+export const restablecerPassword = async (req, res) => {
+  try {
+    const { token, nuevaPassword } = req.body;
+
+    if (!token || !nuevaPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Token y nueva contraseña son requeridos"
+      });
+    }
+
+    console.log("🔐 Intentando restablecer contraseña con token");
+
+    // Verificar token
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    if (decoded.tipo !== 'password_reset') {
+      console.error("❌ Token inválido - tipo incorrecto");
+      return res.status(400).json({
+        success: false,
+        message: "Token inválido o expirado"
+      });
+    }
+
+    // Validar que la contraseña tenga al menos 6 caracteres
+    if (nuevaPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "La contraseña debe tener al menos 6 caracteres"
+      });
+    }
+
+    // Hashear nueva contraseña
+    const hashedPassword = await bcrypt.hash(nuevaPassword, 10);
+
+    // Actualizar contraseña
+    const { error } = await supabaseAdmin
+      .from("usuarios")
+      .update({ 
+        password: hashedPassword,
+        actualizado_en: new Date()
+      })
+      .eq("id", decoded.userId);
+
+    if (error) {
+      console.error("❌ Error actualizando contraseña:", error);
+      throw error;
+    }
+
+    console.log("✅ Contraseña actualizada exitosamente para usuario:", decoded.userId);
+
+    res.json({
+      success: true,
+      message: "Contraseña actualizada exitosamente"
+    });
+
+  } catch (error) {
+    console.error("❌ Error restableciendo password:", error);
+    
+    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+      return res.status(400).json({
+        success: false,
+        message: "Token inválido o expirado"
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor"
+    });
+  }
+};
+
+// 🎯 ENDPOINT ESPECIAL PARA DEBUGGING - Verificar números de usuario
+export const debugNumerosUsuario = async (req, res) => {
+  try {
+    const { email } = req.query;
+    
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Se requiere el parámetro 'email'"
+      });
+    }
+
+    console.log(`🔍 Debugging números para usuario: ${email}`);
+
+    // 1. Buscar usuario por email
+    const { data: usuario, error: usuarioError } = await supabaseAdmin
+      .from("usuarios")
+      .select("id, nombres, apellidos, correo_electronico, numero_documento")
+      .eq("correo_electronico", email)
+      .single();
+
+    if (usuarioError || !usuario) {
+      return res.status(404).json({
+        success: false,
+        message: "Usuario no encontrado"
+      });
+    }
+
+    console.log("✅ Usuario encontrado:", usuario);
+
+    // 2. Contar números en tabla 'numeros'
+    const { count: countNumeros, error: errorNumeros } = await supabaseAdmin
+      .from("numeros")
+      .select("*", { count: 'exact', head: true })
+      .or(`usuario_id.eq.${usuario.id},comprado_por.eq.${usuario.numero_documento}`);
+
+    if (errorNumeros) {
+      console.error("❌ Error contando en tabla numeros:", errorNumeros);
+    }
+
+    // 3. Contar números en tabla 'numeros_usuario'
+    const { count: countNumerosUsuario, error: errorNumerosUsuario } = await supabaseAdmin
+      .from("numeros_usuario")
+      .select("*", { count: 'exact', head: true })
+      .or(`usuario_id.eq.${usuario.id},numero_documento.eq.${usuario.numero_documento}`);
+
+    if (errorNumerosUsuario) {
+      console.error("❌ Error contando en tabla numeros_usuario:", errorNumerosUsuario);
+    }
+
+    // 4. Obtener detalles de los números
+    const { data: detallesNumeros, error: errorDetallesNumeros } = await supabaseAdmin
+      .from("numeros")
+      .select("id, numero, rifa_id, comprado_por, usuario_id")
+      .or(`usuario_id.eq.${usuario.id},comprado_por.eq.${usuario.numero_documento}`)
+      .order("numero", { ascending: true });
+
+    const { data: detallesNumerosUsuario, error: errorDetallesNumerosUsuario } = await supabaseAdmin
+      .from("numeros_usuario")
+      .select("id, numero, rifa_id, numero_documento, usuario_id")
+      .or(`usuario_id.eq.${usuario.id},numero_documento.eq.${usuario.numero_documento}`)
+      .order("numero", { ascending: true });
+
+    // 5. Respuesta detallada
+    const respuesta = {
+      success: true,
+      usuario: {
+        id: usuario.id,
+        nombres: usuario.nombres,
+        apellidos: usuario.apellidos,
+        email: usuario.correo_electronico,
+        numero_documento: usuario.numero_documento
+      },
+      conteo: {
+        en_tabla_numeros: countNumeros || 0,
+        en_tabla_numeros_usuario: countNumerosUsuario || 0,
+        total_general: (countNumeros || 0) + (countNumerosUsuario || 0)
+      },
+      detalles: {
+        tabla_numeros: detallesNumeros || [],
+        tabla_numeros_usuario: detallesNumerosUsuario || []
+      },
+      analisis: {
+        tiene_duplicados: (countNumeros || 0) > 0 && (countNumerosUsuario || 0) > 0,
+        diferencia: Math.abs((countNumeros || 0) - (countNumerosUsuario || 0))
+      }
+    };
+
+    console.log("📊 Resultado del debugging:", respuesta.conteo);
+
+    res.json(respuesta);
+
+  } catch (error) {
+    console.error("❌ Error en debugNumerosUsuario:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor en debugging"
+    });
   }
 };

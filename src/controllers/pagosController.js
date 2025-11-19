@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "../../supabaseAdminClient.js";
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import bcrypt from "bcrypt";
+import { enviarCorreoCompraExitosa, enviarCorreoBienvenida } from '../services/emailService.js';
 
 // ✅ CONFIGURACIÓN CORRECTA para mercadopago@2.10.0
 const client = new MercadoPagoConfig({
@@ -454,7 +455,7 @@ const procesarPaymentWebhook = async (paymentId, res) => {
 };
 
 /**
- * Procesar compra exitosa - CORREGIDO SIN DUPLICACIÓN
+ * Procesar compra exitosa - CORREGIDO SIN DUPLICACIÓN + EMAIL
  */
 const procesarCompraExitosa = async (transaccion, orderData) => {
   try {
@@ -471,11 +472,13 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
     // ✅ 1. CREAR O BUSCAR USUARIO
     let usuarioId = transaccion.usuario_id;
     let numeroDocumento = usuario_documento;
+    let usuarioCompleto = null;
 
     if (datos_usuario && !usuarioId) {
       const { usuario, doc } = await crearOBuscarUsuario(datos_usuario);
       usuarioId = usuario.id;
       numeroDocumento = doc;
+      usuarioCompleto = usuario;
       
       // ✅ Actualizar la transacción con el usuario_id
       await supabaseAdmin
@@ -485,6 +488,14 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
           usuario_documento: doc
         })
         .eq("id", transaccion.id);
+    } else if (usuarioId) {
+      // Si ya existe usuario_id, obtener datos completos
+      const { data: usuario } = await supabaseAdmin
+        .from("usuarios")
+        .select("*")
+        .eq("id", usuarioId)
+        .single();
+      usuarioCompleto = usuario;
     }
 
     // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS (con anti-duplicación robusta)
@@ -492,7 +503,32 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
 
     console.log(`✅ Compra procesada exitosamente - Usuario: ${usuarioId}, Números: ${numerosAsignados.length}`);
 
-    // ✅ 3. ACTUALIZAR LA TRANSACCIÓN CON LOS NÚMEROS ASIGNADOS
+    // ✅ 3. ENVIAR CORREO DE CONFIRMACIÓN
+    if (usuarioCompleto) {
+      try {
+        // Obtener información de la rifa para el correo
+        const { data: rifa } = await supabaseAdmin
+          .from("rifas")
+          .select("titulo")
+          .eq("id", rifa_id)
+          .single();
+
+        const transaccionConRifa = {
+          ...transaccion,
+          rifaTitulo: rifa?.titulo || "Rifa",
+          cantidad: cantidad,
+          total: transaccion.valor_total
+        };
+
+        await enviarCorreoCompraExitosa(usuarioCompleto, transaccionConRifa, numerosAsignados);
+        console.log("📧 Correo de compra enviado exitosamente");
+      } catch (emailError) {
+        console.error("❌ Error enviando correo de compra:", emailError);
+        // No fallar la transacción por error de email
+      }
+    }
+
+    // ✅ 4. ACTUALIZAR LA TRANSACCIÓN CON LOS NÚMEROS ASIGNADOS
     await supabaseAdmin
       .from("transacciones_pagos")
       .update({
@@ -601,7 +637,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
 };
 
 /**
- * Crear o buscar usuario
+ * Crear o buscar usuario - ACTUALIZADO CON EMAIL
  */
 const crearOBuscarUsuario = async (datosUsuario) => {
   try {
@@ -648,6 +684,7 @@ const crearOBuscarUsuario = async (datosUsuario) => {
       };
     }
 
+    // ✅ USUARIO NUEVO - Crear y enviar correo de bienvenida
     const passwordPlana = generarContraseñaSegura();
     const hashedPassword = await bcrypt.hash(passwordPlana, 10);
 
@@ -677,7 +714,15 @@ const crearOBuscarUsuario = async (datosUsuario) => {
     }
 
     console.log("✅ Nuevo usuario creado:", usuario.id);
-    console.log("🔐 Contraseña generada:", passwordPlana);
+
+    // ✅ ENVIAR CORREO DE BIENVENIDA AL NUEVO USUARIO
+    try {
+      await enviarCorreoBienvenida(usuario, passwordPlana);
+      console.log("📧 Correo de bienvenida enviado exitosamente");
+    } catch (emailError) {
+      console.error("❌ Error enviando correo de bienvenida:", emailError);
+      // No fallar la creación por error de email
+    }
 
     return { 
         usuario, 
