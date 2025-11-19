@@ -657,7 +657,7 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
 };
 
 /**
- * Asignar números aleatorios - VERSIÓN SIMPLE Y FUNCIONAL CON ANTI-DUPLICACIÓN
+ * Asignar números aleatorios - CORREGIDO SIN DUPLICACIÓN
  */
 const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento) => {
   try {
@@ -721,7 +721,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
 
       console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE:`, numerosValores);
 
-      // ✅ ACTUALIZAR LA TABLA 'numeros' con el usuario_id
+      // ✅ SOLUCIÓN: ACTUALIZAR SOLO LA TABLA 'numeros' - ELIMINADA LA DUPLICACIÓN
       const { error: updateError } = await supabaseAdmin
         .from("numeros")
         .update({
@@ -732,24 +732,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
 
       if (updateError) throw updateError;
 
-      // ✅ INSERTAR EN numeros_usuario también
-      const numerosUsuarioData = seleccionados.map(numero => ({
-        numero: numero.numero,
-        numero_documento: numeroDocumento,
-        usuario_id: usuarioId,
-        rifa_id: rifaId
-      }));
-
-      const { error: insertError } = await supabaseAdmin
-        .from("numeros_usuario")
-        .insert(numerosUsuarioData);
-
-      if (insertError) {
-        console.error("❌ Error insertando en numeros_usuario:", insertError);
-        throw insertError;
-      }
-
-      console.log(`✅ ${cantidad} números asignados aleatoriamente:`, numerosValores);
+      console.log(`✅ ${cantidad} números asignados correctamente:`, numerosValores);
       return numerosValores;
 
     } finally {

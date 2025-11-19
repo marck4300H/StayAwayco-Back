@@ -205,7 +205,7 @@ export const obtenerPerfil = async (req, res) => {
   }
 };
 
-// 🎯 NUEVA FUNCIÓN: Obtener números comprados por el usuario
+// 🎯 FUNCIÓN CORREGIDA: Obtener números comprados por el usuario - SIN DUPLICACIÓN
 export const obtenerNumerosUsuario = async (req, res) => {
   try {
     const usuario = req.usuario;
@@ -219,12 +219,13 @@ export const obtenerNumerosUsuario = async (req, res) => {
 
     console.log(`📋 Buscando números para usuario:`, usuario);
 
+    // ✅ SOLUCIÓN: Buscar SOLO en la tabla 'numeros' para evitar duplicación
     let allNumerosUsuario = [];
     
-    // ✅ BUSCAR POR USUARIO_ID (prioritario para nuevos usuarios)
+    // BUSCAR POR USUARIO_ID (prioritario para nuevos usuarios)
     if (usuario.id) {
       const { data: byUserId, error: error1 } = await supabaseAdmin
-        .from("numeros_usuario")
+        .from("numeros")
         .select("numero, rifa_id")
         .eq("usuario_id", usuario.id)
         .order("numero", { ascending: true });
@@ -235,12 +236,12 @@ export const obtenerNumerosUsuario = async (req, res) => {
       }
     }
 
-    // ✅ SI NO ENCONTRÓ POR ID, BUSCAR POR NUMERO_DOCUMENTO (compatibilidad)
+    // SI NO ENCONTRÓ POR ID, BUSCAR POR NUMERO_DOCUMENTO (compatibilidad)
     if (allNumerosUsuario.length === 0 && usuario.numero_documento) {
       const { data: byDoc, error: error2 } = await supabaseAdmin
-        .from("numeros_usuario")
+        .from("numeros")
         .select("numero, rifa_id")
-        .eq("numero_documento", usuario.numero_documento)
+        .eq("comprado_por", usuario.numero_documento)
         .order("numero", { ascending: true });
 
       if (!error2 && byDoc) {
