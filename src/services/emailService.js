@@ -2,13 +2,58 @@ import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// Configurar el dominio con customReturnPath (ejecutar una sola vez)
+const configurarDominio = async () => {
+  try {
+    console.log('🔧 Configurando dominio en Resend...');
+    
+    const result = await resend.domains.create({ 
+      name: 'stayaway.com.co', 
+      customReturnPath: 'outbound' 
+    });
+
+    console.log('✅ Dominio configurado correctamente:');
+    console.log('📧 Domain ID:', result.data?.id);
+    console.log('🔧 Custom Return Path: outbound');
+    
+    if (result.data?.records) {
+      console.log('📋 Registros DNS a agregar:');
+      result.data.records.forEach(record => {
+        console.log(`   ${record.type} | ${record.name} | ${record.value}`);
+      });
+    }
+    
+    return result;
+  } catch (error) {
+    // Si el dominio ya existe, no es problema
+    if (error.message?.includes('already exists')) {
+      console.log('ℹ️ El dominio ya está configurado en Resend');
+      return { success: true };
+    }
+    console.error('❌ Error configurando dominio:', error);
+    return { success: false, error };
+  }
+};
+
+// Ejecutar la configuración al iniciar (solo una vez)
+let dominioConfigurado = false;
+const inicializarResend = async () => {
+  if (!dominioConfigurado) {
+    await configurarDominio();
+    dominioConfigurado = true;
+  }
+};
+
+// Inicializar Resend
+inicializarResend();
+
 /**
  * Enviar correo de confirmación de compra
  */
 export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsignados) => {
   try {
     const { data, error } = await resend.emails.send({
-      from: 'StayAway <noreply@stayaway.com.co>',
+      from: 'StayAway Rifas <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: `🎉 ¡Compra Exitosa! - ${transaccion.rifaTitulo}`,
       html: generarTemplateCompra(usuario, transaccion, numerosAsignados),
@@ -33,7 +78,7 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
 export const enviarCorreoBienvenida = async (usuario, passwordPlana) => {
   try {
     const { data, error } = await resend.emails.send({
-      from: 'StayAway <noreply@stayaway.com.co>',
+      from: 'StayAway Rifas <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: '👋 ¡Bienvenido a StayAway Rifas!',
       html: generarTemplateBienvenida(usuario, passwordPlana),
@@ -60,7 +105,7 @@ export const enviarCorreoRecuperacion = async (usuario, tokenRecuperacion) => {
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${tokenRecuperacion}`;
     
     const { data, error } = await resend.emails.send({
-      from: 'StayAway <noreply@stayaway.com.co>',
+      from: 'StayAway Rifas <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: '🔐 Restablece tu contraseña - StayAway Rifas',
       html: generarTemplateRecuperacion(usuario, resetUrl),
@@ -80,7 +125,35 @@ export const enviarCorreoRecuperacion = async (usuario, tokenRecuperacion) => {
 };
 
 /**
- * Templates de correo
+ * Función para probar la configuración del dominio
+ */
+export const probarConfiguracionEmail = async () => {
+  try {
+    console.log('🧪 Probando configuración de email...');
+    
+    // Probar enviando un correo de prueba
+    const { data, error } = await resend.emails.send({
+      from: 'StayAway Rifas <noreply@stayaway.com.co>',
+      to: 'marcoscastro0958@gmail.com', // Tu email
+      subject: '🧪 Prueba de configuración - StayAway Rifas',
+      html: '<h1>✅ Configuración de email funcionando correctamente</h1><p>Si recibes este correo, la configuración de Resend está funcionando.</p>',
+    });
+
+    if (error) {
+      console.error('❌ Error en prueba:', error);
+      return { success: false, error };
+    }
+
+    console.log('✅ Prueba exitosa, correo enviado:', data.id);
+    return { success: true, emailId: data.id };
+  } catch (error) {
+    console.error('❌ Error en prueba de configuración:', error);
+    return { success: false, error };
+  }
+};
+
+/**
+ * Templates de correo (MANTENER IGUAL)
  */
 const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
   return `
