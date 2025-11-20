@@ -8,7 +8,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsignados) => {
   try {
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <onboarding@resend.dev>',
+      from: 'StayAway <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: `🎉 ¡Compra Exitosa! - ${transaccion.rifaTitulo}`,
       html: generarTemplateCompra(usuario, transaccion, numerosAsignados),
@@ -33,7 +33,7 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
 export const enviarCorreoBienvenida = async (usuario, passwordPlana) => {
   try {
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <onboarding@resend.dev>',
+      from: 'StayAway <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: '👋 ¡Bienvenido a StayAway Rifas!',
       html: generarTemplateBienvenida(usuario, passwordPlana),
@@ -60,7 +60,7 @@ export const enviarCorreoRecuperacion = async (usuario, tokenRecuperacion) => {
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${tokenRecuperacion}`;
     
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <onboarding@resend.dev>',
+      from: 'StayAway <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: '🔐 Restablece tu contraseña - StayAway Rifas',
       html: generarTemplateRecuperacion(usuario, resetUrl),
