@@ -112,3 +112,284 @@ export const verificarAdmin = (req, res, next) => {
     });
   }
 };
+
+/**
+ * ✅ ASIGNACIÓN DIRECTA DE NÚMEROS (Sin pago) - SOLO ADMINISTRADORES
+ * Permite a un admin asignar números aleatorios a un usuario existente
+ */
+export const asignarNumerosDirecto = async (req, res) => {
+  try {
+    const { 
+      rifa_id, 
+      numero_documento, 
+      cantidad,
+      notas_admin // Opcional: notas del admin sobre esta asignación
+    } = req.body;
+
+    console.log("🎯 Asignación directa solicitada por admin:", req.admin.email);
+    console.log("📝 Datos:", { rifa_id, numero_documento, cantidad, notas_admin });
+
+    // ✅ Validaciones básicas
+    if (!rifa_id || !numero_documento || !cantidad) {
+      return res.status(400).json({
+        success: false,
+        message: "Faltan campos obligatorios: rifa_id, numero_documento y cantidad"
+      });
+    }
+
+    if (cantidad < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "La cantidad debe ser al menos 1"
+      });
+    }
+
+    // ✅ 1. Verificar que la rifa existe
+    const { data: rifa, error: rifaError } = await supabaseAdmin
+      .from("rifas")
+      .select("id, titulo, cantidad_numeros, precio_unitario, cantidad_minima")
+      .eq("id", rifa_id)
+      .single();
+
+    if (rifaError || !rifa) {
+      console.error("❌ Error buscando rifa:", rifaError);
+      return res.status(404).json({
+        success: false,
+        message: "Rifa no encontrada"
+      });
+    }
+
+    console.log(`✅ Rifa encontrada: ${rifa.titulo}`);
+
+    // ✅ 2. Verificar que el usuario existe (por número de documento)
+    const { data: usuario, error: usuarioError } = await supabaseAdmin
+      .from("usuarios")
+      .select("id, nombres, apellidos, correo_electronico, numero_documento, tipo_documento")
+      .eq("numero_documento", numero_documento)
+      .single();
+
+    if (usuarioError || !usuario) {
+      console.error("❌ Usuario no encontrado:", usuarioError);
+      return res.status(404).json({
+        success: false,
+        message: `Usuario con documento ${numero_documento} no encontrado. El usuario debe estar registrado primero.`
+      });
+    }
+
+    console.log(`✅ Usuario encontrado: ${usuario.nombres} ${usuario.apellidos} (${usuario.correo_electronico})`);
+
+    // ✅ 3. Verificar números disponibles
+    const { count: disponiblesCount, error: countError } = await supabaseAdmin
+      .from("numeros")
+      .select("*", { count: "exact", head: true })
+      .eq("rifa_id", rifa_id)
+      .is("comprado_por", null);
+
+    if (countError) {
+      console.error("❌ Error contando números disponibles:", countError);
+      throw countError;
+    }
+
+    if (disponiblesCount < cantidad) {
+      return res.status(400).json({
+        success: false,
+        message: `No hay suficientes números disponibles. Solicitados: ${cantidad}, Disponibles: ${disponiblesCount}`
+      });
+    }
+
+    console.log(`✅ Números disponibles verificados: ${disponiblesCount}`);
+
+    // ✅ 4. ASIGNAR NÚMEROS ALEATORIOS
+    const numerosAsignados = await asignarNumerosAleatoriosAdmin(
+      rifa_id, 
+      cantidad, 
+      usuario.id, 
+      numero_documento
+    );
+
+    if (!numerosAsignados || numerosAsignados.length === 0) {
+      throw new Error("Error asignando números");
+    }
+
+    console.log(`✅ ${numerosAsignados.length} números asignados`);
+
+    // ✅ 5. Crear registro en transacciones (para auditoría) - MARCADO COMO MANUAL
+    const referencia = `MANUAL-${rifa_id.slice(0, 8)}-${Date.now()}`;
+    
+    const transaccionData = {
+      referencia,
+      invoice: `ADMIN-${Date.now()}`,
+      rifa_id: rifa_id,
+      cantidad: cantidad,
+      precio_unitario: 0, // Sin costo porque es asignación directa
+      valor_total: 0, // Sin costo
+      estado: 'aprobado',
+      usuario_id: usuario.id,
+      usuario_documento: numero_documento,
+      datos_usuario: {
+        nombres: usuario.nombres,
+        apellidos: usuario.apellidos,
+        correo_electronico: usuario.correo_electronico,
+        numero_documento: usuario.numero_documento,
+        tipo_documento: usuario.tipo_documento
+      },
+      metodo_pago: 'asignacion_directa_admin',
+      fecha_aprobacion: new Date().toISOString(),
+      datos_respuesta: {
+        tipo: 'asignacion_manual',
+        admin_email: req.admin.email,
+        admin_id: req.admin.id,
+        numeros_asignados: numerosAsignados,
+        cantidad_entregada: numerosAsignados.length,
+        notas: notas_admin || 'Asignación directa por administrador'
+      }
+    };
+
+    const { data: transaccion, error: transError } = await supabaseAdmin
+      .from("transacciones_pagos")
+      .insert([transaccionData])
+      .select()
+      .single();
+
+    if (transError) {
+      console.error("⚠️ Error creando registro de transacción (no crítico):", transError);
+    } else {
+      console.log("✅ Transacción registrada para auditoría:", transaccion.id);
+    }
+
+    // ✅ 6. ENVIAR CORREO DE CONFIRMACIÓN
+    try {
+      const { enviarCorreoCompraExitosa } = await import('../services/emailService.js');
+      
+      const transaccionParaEmail = {
+        referencia,
+        rifaTitulo: rifa.titulo,
+        cantidad: cantidad,
+        total: 0 // ← CORREGIDO: debe ser 'total', no 'valor_total'
+      };
+
+      await enviarCorreoCompraExitosa(usuario, transaccionParaEmail, numerosAsignados);
+      console.log("📧 Correo de confirmación enviado exitosamente");
+    } catch (emailError) {
+      console.error("⚠️ Error enviando correo (no crítico):", emailError.message);
+      // No fallar la operación por error de email
+    }
+
+    // ✅ 7. RESPUESTA EXITOSA
+    res.json({
+      success: true,
+      message: `${numerosAsignados.length} números asignados exitosamente a ${usuario.nombres} ${usuario.apellidos}`,
+      data: {
+        usuario: {
+          id: usuario.id,
+          nombre_completo: `${usuario.nombres} ${usuario.apellidos}`,
+          correo: usuario.correo_electronico,
+          documento: usuario.numero_documento
+        },
+        rifa: {
+          id: rifa.id,
+          titulo: rifa.titulo
+        },
+        numeros_asignados: numerosAsignados.sort((a, b) => a - b), // Ordenar numéricamente
+        cantidad_asignada: numerosAsignados.length,
+        referencia_transaccion: referencia,
+        asignado_por: req.admin.email,
+        fecha_asignacion: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error en asignarNumerosDirecto:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor al asignar números",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * ✅ Función auxiliar para asignar números aleatorios (versión para admin)
+ * Compatible con schema: numeros.numero es INTEGER, no TEXT
+ */
+const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numeroDocumento) => {
+  try {
+    console.log(`🔍 Buscando ${cantidad} números disponibles para rifa ${rifaId}...`);
+    
+    // ✅ OBTENER NÚMEROS DISPONIBLES EN LOTES
+    let allNumerosDisponibles = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data: batch, error: disponiblesError } = await supabaseAdmin
+        .from("numeros")
+        .select("id, numero") // numero es INTEGER en la BD
+        .eq("rifa_id", rifaId)
+        .is("comprado_por", null)
+        .range(from, from + batchSize - 1);
+
+      if (disponiblesError) {
+        console.error("❌ Error obteniendo lote de números:", disponiblesError);
+        throw disponiblesError;
+      }
+
+      if (batch && batch.length > 0) {
+        allNumerosDisponibles = [...allNumerosDisponibles, ...batch];
+        from += batchSize;
+        
+        // Si obtuvimos todos los que necesitamos, podemos parar
+        if (allNumerosDisponibles.length >= cantidad) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
+    console.log(`🎯 TOTAL números disponibles encontrados: ${allNumerosDisponibles.length}`);
+
+    if (allNumerosDisponibles.length < cantidad) {
+      throw new Error(`No hay suficientes números disponibles. Solicitados: ${cantidad}, Disponibles: ${allNumerosDisponibles.length}`);
+    }
+
+    // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA
+    const mezclarArray = (array) => {
+      const shuffled = [...array];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    };
+
+    const numerosMezclados = mezclarArray(allNumerosDisponibles);
+    const seleccionados = numerosMezclados.slice(0, cantidad);
+    const numerosIds = seleccionados.map(n => n.id);
+    const numerosValores = seleccionados.map(n => n.numero); // Ya son integers
+
+    console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE`);
+
+    // ✅ ACTUALIZAR TABLA 'numeros' CON LA ASIGNACIÓN
+    const { error: updateError } = await supabaseAdmin
+      .from("numeros")
+      .update({
+        comprado_por: numeroDocumento, // VARCHAR
+        usuario_id: usuarioId // UUID
+      })
+      .in("id", numerosIds);
+
+    if (updateError) {
+      console.error("❌ Error actualizando números:", updateError);
+      throw updateError;
+    }
+
+    console.log(`✅ ${cantidad} números asignados correctamente en la base de datos`);
+    return numerosValores; // Array de integers
+
+  } catch (error) {
+    console.error("❌ Error asignando números (admin):", error);
+    throw error;
+  }
+};
