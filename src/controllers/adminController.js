@@ -3,10 +3,22 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 /**
- * ✅ Formatear número con ceros a la izquierda
- * Ejemplo: 4813 → "04813", 95629 → "95629"
+ * ✅ Calcular cantidad de dígitos necesarios según el total de números de la rifa
+ * Ejemplo: 10000 números → 4 dígitos (0000-9999)
+ *          100000 números → 5 dígitos (00000-99999)
  */
-const formatearNumero = (numero, digitos = 5) => {
+const calcularDigitos = (cantidadNumeros) => {
+  // Restar 1 porque los números van de 0 a (cantidadNumeros - 1)
+  // Ejemplo: 10000 números = 0 a 9999 = 4 dígitos
+  //          100000 números = 0 a 99999 = 5 dígitos
+  return (cantidadNumeros - 1).toString().length;
+};
+
+/**
+ * ✅ Formatear número con ceros a la izquierda
+ * Ejemplo: 4813 con 4 dígitos → "4813", 481 con 4 dígitos → "0481"
+ */
+const formatearNumero = (numero, digitos) => {
   return numero.toString().padStart(digitos, '0');
 };
 
@@ -167,7 +179,7 @@ export const asignarNumerosDirecto = async (req, res) => {
       });
     }
 
-    console.log(`✅ Rifa encontrada: ${rifa.titulo}`);
+    console.log(`✅ Rifa encontrada: ${rifa.titulo} (${rifa.cantidad_numeros.toLocaleString()} números)`);
 
     // ✅ 2. Verificar que el usuario existe (por número de documento)
     const { data: usuario, error: usuarioError } = await supabaseAdmin
@@ -207,12 +219,13 @@ export const asignarNumerosDirecto = async (req, res) => {
 
     console.log(`✅ Números disponibles verificados: ${disponiblesCount}`);
 
-    // ✅ 4. ASIGNAR NÚMEROS ALEATORIOS
+    // ✅ 4. ASIGNAR NÚMEROS ALEATORIOS CON FORMATEO DINÁMICO
     const numerosAsignados = await asignarNumerosAleatoriosAdmin(
       rifa_id, 
       cantidad, 
       usuario.id, 
-      numero_documento
+      numero_documento,
+      rifa.cantidad_numeros // ← PASAR cantidad_numeros para calcular dígitos
     );
 
     if (!numerosAsignados || numerosAsignados.length === 0) {
@@ -233,8 +246,8 @@ export const asignarNumerosDirecto = async (req, res) => {
       invoice: `ADMIN-${Date.now()}`,
       rifa_id: rifa_id,
       cantidad: cantidad,
-      precio_unitario: rifa.precio_unitario, // Precio real de la rifa
-      valor_total: valorTotal, // Valor real calculado
+      precio_unitario: rifa.precio_unitario,
+      valor_total: valorTotal,
       estado: 'aprobado',
       usuario_id: usuario.id,
       usuario_documento: numero_documento,
@@ -245,7 +258,7 @@ export const asignarNumerosDirecto = async (req, res) => {
         numero_documento: usuario.numero_documento,
         tipo_documento: usuario.tipo_documento
       },
-      metodo_pago: 'pago_directo_admin', // Compra directa sin pasarela
+      metodo_pago: 'pago_directo_admin',
       fecha_aprobacion: new Date().toISOString(),
       datos_respuesta: {
         tipo: 'asignacion_manual',
@@ -277,14 +290,13 @@ export const asignarNumerosDirecto = async (req, res) => {
         referencia,
         rifaTitulo: rifa.titulo,
         cantidad: cantidad,
-        total: valorTotal // Valor real de la compra
+        total: valorTotal
       };
 
       await enviarCorreoCompraExitosa(usuario, transaccionParaEmail, numerosAsignados);
       console.log("📧 Correo de confirmación enviado exitosamente");
     } catch (emailError) {
       console.error("⚠️ Error enviando correo (no crítico):", emailError.message);
-      // No fallar la operación por error de email
     }
 
     // ✅ 8. RESPUESTA EXITOSA CON NÚMEROS FORMATEADOS
@@ -302,7 +314,7 @@ export const asignarNumerosDirecto = async (req, res) => {
           id: rifa.id,
           titulo: rifa.titulo
         },
-        numeros_asignados: numerosAsignados, // Ya vienen formateados con ceros
+        numeros_asignados: numerosAsignados,
         cantidad_asignada: numerosAsignados.length,
         precio_unitario: rifa.precio_unitario,
         valor_total: valorTotal,
@@ -324,14 +336,17 @@ export const asignarNumerosDirecto = async (req, res) => {
 
 /**
  * ✅ Función auxiliar para asignar números VERDADERAMENTE aleatorios
- * IDÉNTICA a la función de MercadoPago que SÍ funciona correctamente
- * Compatible con schema: numeros.numero es INTEGER, no TEXT
+ * Con formateo dinámico según la cantidad de números de la rifa
  */
-const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numeroDocumento) => {
+const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numeroDocumento, cantidadNumerosRifa) => {
   try {
     console.log(`🔍 Buscando ${cantidad} números disponibles para rifa ${rifaId}...`);
     
-    // ✅ OBTENER TODOS LOS NÚMEROS DISPONIBLES (IGUAL QUE MERCADOPAGO)
+    // ✅ CALCULAR DÍGITOS DINÁMICAMENTE
+    const digitosFormato = calcularDigitos(cantidadNumerosRifa);
+    console.log(`📏 Formato de números: ${digitosFormato} dígitos (Rifa de ${cantidadNumerosRifa.toLocaleString()} números: 0-${(cantidadNumerosRifa - 1).toLocaleString()})`);
+    
+    // ✅ OBTENER TODOS LOS NÚMEROS DISPONIBLES
     let allNumerosDisponibles = [];
     let from = 0;
     const batchSize = 1000;
@@ -354,7 +369,7 @@ const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numero
         allNumerosDisponibles = [...allNumerosDisponibles, ...batch];
         from += batchSize;
       } else {
-        hasMore = false; // ← Solo para cuando ya no hay más registros
+        hasMore = false;
       }
     }
 
@@ -377,7 +392,7 @@ const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numero
     const numerosMezclados = mezclarArray(allNumerosDisponibles);
     const seleccionados = numerosMezclados.slice(0, cantidad);
     const numerosIds = seleccionados.map(n => n.id);
-    const numerosValores = seleccionados.map(n => n.numero); // Ya son integers
+    const numerosValores = seleccionados.map(n => n.numero);
 
     // ✅ MOSTRAR DISTRIBUCIÓN PARA VERIFICACIÓN
     const numerosOrdenados = [...numerosValores].sort((a, b) => a - b);
@@ -399,8 +414,8 @@ const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numero
     const { error: updateError } = await supabaseAdmin
       .from("numeros")
       .update({
-        comprado_por: numeroDocumento, // VARCHAR
-        usuario_id: usuarioId // UUID
+        comprado_por: numeroDocumento,
+        usuario_id: usuarioId
       })
       .in("id", numerosIds);
 
@@ -411,8 +426,11 @@ const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numero
 
     console.log(`✅ ${cantidad} números asignados correctamente en la base de datos`);
     
-    // ✅ FORMATEAR NÚMEROS CON CEROS A LA IZQUIERDA ANTES DE RETORNAR
-    return numerosValores.map(num => formatearNumero(num));
+    // ✅ FORMATEAR NÚMEROS CON CEROS A LA IZQUIERDA (DINÁMICO)
+    const numerosFormateados = numerosValores.map(num => formatearNumero(num, digitosFormato));
+    console.log(`🎨 Números formateados: ${numerosFormateados.slice(0, 3).join(', ')}... (${digitosFormato} dígitos)`);
+    
+    return numerosFormateados;
 
   } catch (error) {
     console.error("❌ Error asignando números (admin):", error);

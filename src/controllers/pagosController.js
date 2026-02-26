@@ -2,6 +2,22 @@ import { supabaseAdmin } from "../../supabaseAdminClient.js";
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import bcrypt from "bcrypt";
 import { enviarCorreoCompraExitosa, enviarCorreoBienvenida } from '../services/emailService.js';
+/**
+ * ✅ Calcular cantidad de dígitos necesarios según el total de números de la rifa
+ * Ejemplo: 10000 números → 4 dígitos (0000-9999)
+ *          100000 números → 5 dígitos (00000-99999)
+ */
+const calcularDigitos = (cantidadNumeros) => {
+  return (cantidadNumeros - 1).toString().length;
+};
+
+/**
+ * ✅ Formatear número con ceros a la izquierda
+ */
+const formatearNumero = (numero, digitos) => {
+  return numero.toString().padStart(digitos, '0');
+};
+
 
 // ✅ CONFIGURACIÓN CORRECTA para mercadopago@2.10.0
 const client = new MercadoPagoConfig({
@@ -457,6 +473,9 @@ const procesarPaymentWebhook = async (paymentId, res) => {
 /**
  * Procesar compra exitosa - CORREGIDO SIN DUPLICACIÓN + EMAIL
  */
+/**
+ * Procesar compra exitosa - CORREGIDO SIN DUPLICACIÓN + EMAIL + FORMATEO DINÁMICO
+ */
 const procesarCompraExitosa = async (transaccion, orderData) => {
   try {
     console.log("🎉 Procesando compra exitosa:", transaccion.referencia);
@@ -469,6 +488,20 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
 
     const { rifa_id, cantidad, datos_usuario, usuario_documento } = transaccion;
 
+    // ✅ 0. OBTENER INFORMACIÓN DE LA RIFA (INCLUYENDO cantidad_numeros)
+    const { data: rifa, error: rifaError } = await supabaseAdmin
+      .from("rifas")
+      .select("titulo, cantidad_numeros")
+      .eq("id", rifa_id)
+      .single();
+
+    if (rifaError || !rifa) {
+      console.error("❌ Error obteniendo info de rifa:", rifaError);
+      throw new Error("No se pudo obtener información de la rifa");
+    }
+
+    console.log(`✅ Rifa: ${rifa.titulo} (${rifa.cantidad_numeros.toLocaleString()} números)`);
+
     // ✅ 1. CREAR O BUSCAR USUARIO
     let usuarioId = transaccion.usuario_id;
     let numeroDocumento = usuario_documento;
@@ -480,7 +513,6 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
       numeroDocumento = doc;
       usuarioCompleto = usuario;
       
-      // ✅ Actualizar la transacción con el usuario_id
       await supabaseAdmin
         .from("transacciones_pagos")
         .update({
@@ -489,7 +521,6 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
         })
         .eq("id", transaccion.id);
     } else if (usuarioId) {
-      // Si ya existe usuario_id, obtener datos completos
       const { data: usuario } = await supabaseAdmin
         .from("usuarios")
         .select("*")
@@ -498,24 +529,24 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
       usuarioCompleto = usuario;
     }
 
-    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS (con anti-duplicación robusta)
-    const numerosAsignados = await asignarNumerosAleatorios(rifa_id, cantidad, usuarioId, numeroDocumento, transaccion.referencia);
+    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS CON FORMATEO DINÁMICO
+    const numerosAsignados = await asignarNumerosAleatorios(
+      rifa_id, 
+      cantidad, 
+      usuarioId, 
+      numeroDocumento, 
+      transaccion.referencia,
+      rifa.cantidad_numeros
+    );
 
     console.log(`✅ Compra procesada exitosamente - Usuario: ${usuarioId}, Números: ${numerosAsignados.length}`);
 
     // ✅ 3. ENVIAR CORREO DE CONFIRMACIÓN
     if (usuarioCompleto) {
       try {
-        // Obtener información de la rifa para el correo
-        const { data: rifa } = await supabaseAdmin
-          .from("rifas")
-          .select("titulo")
-          .eq("id", rifa_id)
-          .single();
-
         const transaccionConRifa = {
           ...transaccion,
-          rifaTitulo: rifa?.titulo || "Rifa",
+          rifaTitulo: rifa.titulo,
           cantidad: cantidad,
           total: transaccion.valor_total
         };
@@ -524,7 +555,6 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
         console.log("📧 Correo de compra enviado exitosamente");
       } catch (emailError) {
         console.error("❌ Error enviando correo de compra:", emailError);
-        // No fallar la transacción por error de email
       }
     }
 
@@ -546,29 +576,26 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
   }
 };
 
-/**
- * ✅ Formatear número con ceros a la izquierda
- * Ejemplo: 4813 → "04813", 95629 → "95629"
- */
-const formatearNumero = (numero, digitos = 5) => {
-  return numero.toString().padStart(digitos, '0');
-};
+
 
 /**
- * Asignar números aleatorios - CORREGIDO CON ANTI-DUPLICACIÓN ROBUSTA + FORMATEO
+ * Asignar números aleatorios - CON FORMATEO DINÁMICO
  */
-const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento, referenciaTransaccion) => {
+const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento, referenciaTransaccion, cantidadNumerosRifa) => {
   try {
     console.log(`🔍 Buscando ${cantidad} números disponibles para rifa ${rifaId}...`);
     
-    // ✅ VERIFICACIÓN ANTI-DUPLICACIÓN ROBUSTA: Usar referencia de transacción
+    // ✅ CALCULAR DÍGITOS DINÁMICAMENTE
+    const digitosFormato = calcularDigitos(cantidadNumerosRifa);
+    console.log(`📏 Formato: ${digitosFormato} dígitos (Rifa de ${cantidadNumerosRifa.toLocaleString()} números: 0-${(cantidadNumerosRifa - 1).toLocaleString()})`);
+    
+    // ✅ VERIFICACIÓN ANTI-DUPLICACIÓN
     const procesamientoKey = `asignacion-${referenciaTransaccion}`;
     if (transaccionesProcesando.has(procesamientoKey)) {
       console.log(`⚠️ Esta transacción ya se está procesando. Ignorando duplicado.`);
       return [];
     }
 
-    // ✅ Marcar como en proceso
     transaccionesProcesando.add(procesamientoKey);
 
     try {
@@ -617,7 +644,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
       const numerosIds = seleccionados.map(n => n.id);
       const numerosValores = seleccionados.map(n => n.numero);
 
-      console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE:`, numerosValores.slice(0, 5));
+      console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE`);
 
       // ✅ ACTUALIZAR TABLA 'numeros' CON LA ASIGNACIÓN
       const { error: updateError } = await supabaseAdmin
@@ -632,11 +659,13 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
 
       console.log(`✅ ${cantidad} números asignados correctamente`);
       
-      // ✅ FORMATEAR NÚMEROS CON CEROS A LA IZQUIERDA ANTES DE RETORNAR
-      return numerosValores.map(num => formatearNumero(num));
+      // ✅ FORMATEAR NÚMEROS CON CEROS A LA IZQUIERDA (DINÁMICO)
+      const numerosFormateados = numerosValores.map(num => formatearNumero(num, digitosFormato));
+      console.log(`🎨 Números formateados: ${numerosFormateados.slice(0, 3).join(', ')}... (${digitosFormato} dígitos)`);
+      
+      return numerosFormateados;
 
     } finally {
-      // ✅ Siempre liberar el bloqueo
       transaccionesProcesando.delete(procesamientoKey);
     }
 
