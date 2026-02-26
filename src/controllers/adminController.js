@@ -2,6 +2,14 @@ import { supabaseAdmin } from "../../supabaseAdminClient.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
+/**
+ * ✅ Formatear número con ceros a la izquierda
+ * Ejemplo: 4813 → "04813", 95629 → "95629"
+ */
+const formatearNumero = (numero, digitos = 5) => {
+  return numero.toString().padStart(digitos, '0');
+};
+
 // Iniciar sesión de administrador
 export const loginAdmin = async (req, res) => {
   const { email, password } = req.body;
@@ -279,7 +287,7 @@ export const asignarNumerosDirecto = async (req, res) => {
       // No fallar la operación por error de email
     }
 
-    // ✅ 8. RESPUESTA EXITOSA
+    // ✅ 8. RESPUESTA EXITOSA CON NÚMEROS FORMATEADOS
     res.json({
       success: true,
       message: `${numerosAsignados.length} números asignados exitosamente a ${usuario.nombres} ${usuario.apellidos}`,
@@ -294,7 +302,7 @@ export const asignarNumerosDirecto = async (req, res) => {
           id: rifa.id,
           titulo: rifa.titulo
         },
-        numeros_asignados: numerosAsignados.sort((a, b) => a - b), // Ordenar numéricamente
+        numeros_asignados: numerosAsignados, // Ya vienen formateados con ceros
         cantidad_asignada: numerosAsignados.length,
         precio_unitario: rifa.precio_unitario,
         valor_total: valorTotal,
@@ -402,11 +410,12 @@ const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numero
     }
 
     console.log(`✅ ${cantidad} números asignados correctamente en la base de datos`);
-    return numerosValores; // Array de integers
+    
+    // ✅ FORMATEAR NÚMEROS CON CEROS A LA IZQUIERDA ANTES DE RETORNAR
+    return numerosValores.map(num => formatearNumero(num));
 
   } catch (error) {
     console.error("❌ Error asignando números (admin):", error);
     throw error;
   }
 };
-

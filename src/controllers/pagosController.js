@@ -547,7 +547,15 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
 };
 
 /**
- * Asignar números aleatorios - CORREGIDO CON ANTI-DUPLICACIÓN ROBUSTA
+ * ✅ Formatear número con ceros a la izquierda
+ * Ejemplo: 4813 → "04813", 95629 → "95629"
+ */
+const formatearNumero = (numero, digitos = 5) => {
+  return numero.toString().padStart(digitos, '0');
+};
+
+/**
+ * Asignar números aleatorios - CORREGIDO CON ANTI-DUPLICACIÓN ROBUSTA + FORMATEO
  */
 const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento, referenciaTransaccion) => {
   try {
@@ -564,7 +572,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
     transaccionesProcesando.add(procesamientoKey);
 
     try {
-      // ✅ OBTENER NÚMEROS DISPONIBLES
+      // ✅ OBTENER TODOS LOS NÚMEROS DISPONIBLES
       let allNumerosDisponibles = [];
       let from = 0;
       const batchSize = 1000;
@@ -607,11 +615,11 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
       const numerosMezclados = mezclarArray(allNumerosDisponibles);
       const seleccionados = numerosMezclados.slice(0, cantidad);
       const numerosIds = seleccionados.map(n => n.id);
-      const numerosValores = seleccionados.map(n => n.numero).sort((a, b) => parseInt(a) - parseInt(b));
+      const numerosValores = seleccionados.map(n => n.numero);
 
-      console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE:`, numerosValores);
+      console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE:`, numerosValores.slice(0, 5));
 
-      // ✅ SOLUCIÓN: ACTUALIZAR SOLO LA TABLA 'numeros' - SIN DUPLICACIÓN
+      // ✅ ACTUALIZAR TABLA 'numeros' CON LA ASIGNACIÓN
       const { error: updateError } = await supabaseAdmin
         .from("numeros")
         .update({
@@ -622,8 +630,10 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
 
       if (updateError) throw updateError;
 
-      console.log(`✅ ${cantidad} números asignados correctamente:`, numerosValores);
-      return numerosValores;
+      console.log(`✅ ${cantidad} números asignados correctamente`);
+      
+      // ✅ FORMATEAR NÚMEROS CON CEROS A LA IZQUIERDA ANTES DE RETORNAR
+      return numerosValores.map(num => formatearNumero(num));
 
     } finally {
       // ✅ Siempre liberar el bloqueo
@@ -635,6 +645,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
     throw error;
   }
 };
+
 
 /**
  * Crear o buscar usuario - ACTUALIZADO CON EMAIL
