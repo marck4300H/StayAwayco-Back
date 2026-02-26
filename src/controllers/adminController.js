@@ -315,14 +315,15 @@ export const asignarNumerosDirecto = async (req, res) => {
 };
 
 /**
- * ✅ Función auxiliar para asignar números aleatorios (versión para admin)
+ * ✅ Función auxiliar para asignar números VERDADERAMENTE aleatorios
+ * IDÉNTICA a la función de MercadoPago que SÍ funciona correctamente
  * Compatible con schema: numeros.numero es INTEGER, no TEXT
  */
 const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numeroDocumento) => {
   try {
     console.log(`🔍 Buscando ${cantidad} números disponibles para rifa ${rifaId}...`);
     
-    // ✅ OBTENER NÚMEROS DISPONIBLES EN LOTES
+    // ✅ OBTENER TODOS LOS NÚMEROS DISPONIBLES (IGUAL QUE MERCADOPAGO)
     let allNumerosDisponibles = [];
     let from = 0;
     const batchSize = 1000;
@@ -331,7 +332,7 @@ const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numero
     while (hasMore) {
       const { data: batch, error: disponiblesError } = await supabaseAdmin
         .from("numeros")
-        .select("id, numero") // numero es INTEGER en la BD
+        .select("id, numero")
         .eq("rifa_id", rifaId)
         .is("comprado_por", null)
         .range(from, from + batchSize - 1);
@@ -344,23 +345,18 @@ const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numero
       if (batch && batch.length > 0) {
         allNumerosDisponibles = [...allNumerosDisponibles, ...batch];
         from += batchSize;
-        
-        // Si obtuvimos todos los que necesitamos, podemos parar
-        if (allNumerosDisponibles.length >= cantidad) {
-          hasMore = false;
-        }
       } else {
-        hasMore = false;
+        hasMore = false; // ← Solo para cuando ya no hay más registros
       }
     }
 
-    console.log(`🎯 TOTAL números disponibles encontrados: ${allNumerosDisponibles.length}`);
+    console.log(`🎯 TOTAL números disponibles encontrados: ${allNumerosDisponibles.length.toLocaleString()}`);
 
     if (allNumerosDisponibles.length < cantidad) {
       throw new Error(`No hay suficientes números disponibles. Solicitados: ${cantidad}, Disponibles: ${allNumerosDisponibles.length}`);
     }
 
-    // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA
+    // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA (FISHER-YATES SHUFFLE)
     const mezclarArray = (array) => {
       const shuffled = [...array];
       for (let i = shuffled.length - 1; i > 0; i--) {
@@ -375,7 +371,21 @@ const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numero
     const numerosIds = seleccionados.map(n => n.id);
     const numerosValores = seleccionados.map(n => n.numero); // Ya son integers
 
-    console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE`);
+    // ✅ MOSTRAR DISTRIBUCIÓN PARA VERIFICACIÓN
+    const numerosOrdenados = [...numerosValores].sort((a, b) => a - b);
+    console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE:`);
+    console.log(`   - Mínimo: ${numerosOrdenados[0].toLocaleString()}`);
+    console.log(`   - Máximo: ${numerosOrdenados[numerosOrdenados.length - 1].toLocaleString()}`);
+    console.log(`   - Primeros 5: [${numerosOrdenados.slice(0, 5).join(', ')}]`);
+    
+    if (numerosOrdenados.length > 1) {
+      let sumaDiferencias = 0;
+      for (let i = 1; i < numerosOrdenados.length; i++) {
+        sumaDiferencias += numerosOrdenados[i] - numerosOrdenados[i - 1];
+      }
+      const dispersionPromedio = Math.floor(sumaDiferencias / (numerosOrdenados.length - 1));
+      console.log(`   - Dispersión promedio: ${dispersionPromedio.toLocaleString()} (${dispersionPromedio > 1000 ? '✅ Bien distribuido' : '⚠️ Agrupados'})`);
+    }
 
     // ✅ ACTUALIZAR TABLA 'numeros' CON LA ASIGNACIÓN
     const { error: updateError } = await supabaseAdmin
@@ -399,3 +409,4 @@ const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numero
     throw error;
   }
 };
+
