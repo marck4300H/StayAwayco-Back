@@ -114,8 +114,8 @@ export const verificarAdmin = (req, res, next) => {
 };
 
 /**
- * ✅ ASIGNACIÓN DIRECTA DE NÚMEROS (Sin pago) - SOLO ADMINISTRADORES
- * Permite a un admin asignar números aleatorios a un usuario existente
+ * ✅ ASIGNACIÓN DIRECTA DE NÚMEROS (Compra sin pasarela) - SOLO ADMINISTRADORES
+ * Permite a un admin asignar números a un usuario que pagó directamente
  */
 export const asignarNumerosDirecto = async (req, res) => {
   try {
@@ -213,7 +213,11 @@ export const asignarNumerosDirecto = async (req, res) => {
 
     console.log(`✅ ${numerosAsignados.length} números asignados`);
 
-    // ✅ 5. Crear registro en transacciones (para auditoría) - MARCADO COMO MANUAL
+    // ✅ 5. Calcular valor real de la compra
+    const valorTotal = cantidad * rifa.precio_unitario;
+    console.log(`💰 Valor total de la compra: $${valorTotal.toLocaleString()}`);
+
+    // ✅ 6. Crear registro en transacciones (para auditoría) - CON VALOR REAL
     const referencia = `MANUAL-${rifa_id.slice(0, 8)}-${Date.now()}`;
     
     const transaccionData = {
@@ -221,8 +225,8 @@ export const asignarNumerosDirecto = async (req, res) => {
       invoice: `ADMIN-${Date.now()}`,
       rifa_id: rifa_id,
       cantidad: cantidad,
-      precio_unitario: 0, // Sin costo porque es asignación directa
-      valor_total: 0, // Sin costo
+      precio_unitario: rifa.precio_unitario, // Precio real de la rifa
+      valor_total: valorTotal, // Valor real calculado
       estado: 'aprobado',
       usuario_id: usuario.id,
       usuario_documento: numero_documento,
@@ -233,7 +237,7 @@ export const asignarNumerosDirecto = async (req, res) => {
         numero_documento: usuario.numero_documento,
         tipo_documento: usuario.tipo_documento
       },
-      metodo_pago: 'asignacion_directa_admin',
+      metodo_pago: 'pago_directo_admin', // Compra directa sin pasarela
       fecha_aprobacion: new Date().toISOString(),
       datos_respuesta: {
         tipo: 'asignacion_manual',
@@ -241,7 +245,7 @@ export const asignarNumerosDirecto = async (req, res) => {
         admin_id: req.admin.id,
         numeros_asignados: numerosAsignados,
         cantidad_entregada: numerosAsignados.length,
-        notas: notas_admin || 'Asignación directa por administrador'
+        notas: notas_admin || 'Compra directa sin pasarela de pagos'
       }
     };
 
@@ -257,7 +261,7 @@ export const asignarNumerosDirecto = async (req, res) => {
       console.log("✅ Transacción registrada para auditoría:", transaccion.id);
     }
 
-    // ✅ 6. ENVIAR CORREO DE CONFIRMACIÓN
+    // ✅ 7. ENVIAR CORREO DE CONFIRMACIÓN CON VALOR REAL
     try {
       const { enviarCorreoCompraExitosa } = await import('../services/emailService.js');
       
@@ -265,7 +269,7 @@ export const asignarNumerosDirecto = async (req, res) => {
         referencia,
         rifaTitulo: rifa.titulo,
         cantidad: cantidad,
-        total: 0 // ← CORREGIDO: debe ser 'total', no 'valor_total'
+        total: valorTotal // Valor real de la compra
       };
 
       await enviarCorreoCompraExitosa(usuario, transaccionParaEmail, numerosAsignados);
@@ -275,7 +279,7 @@ export const asignarNumerosDirecto = async (req, res) => {
       // No fallar la operación por error de email
     }
 
-    // ✅ 7. RESPUESTA EXITOSA
+    // ✅ 8. RESPUESTA EXITOSA
     res.json({
       success: true,
       message: `${numerosAsignados.length} números asignados exitosamente a ${usuario.nombres} ${usuario.apellidos}`,
@@ -292,6 +296,8 @@ export const asignarNumerosDirecto = async (req, res) => {
         },
         numeros_asignados: numerosAsignados.sort((a, b) => a - b), // Ordenar numéricamente
         cantidad_asignada: numerosAsignados.length,
+        precio_unitario: rifa.precio_unitario,
+        valor_total: valorTotal,
         referencia_transaccion: referencia,
         asignado_por: req.admin.email,
         fecha_asignacion: new Date().toISOString()
