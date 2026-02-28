@@ -191,12 +191,23 @@ export const listarRifas = async (req, res) => {
           const vendidos = rifa.cantidad_numeros - disponiblesCount;
           const porcentaje = rifa.cantidad_numeros === 0 ? 0 : (vendidos / rifa.cantidad_numeros) * 100;
           
-          return { 
+          // ✅ INCLUIR DATOS DEL GANADOR SI LA RIFA ESTÁ SORTEADA
+          const rifaConDatos = { 
             ...rifa, 
             disponibles: disponiblesCount, 
             vendidos, 
-            porcentaje: Number(porcentaje.toFixed(2)) 
+            porcentaje: Number(porcentaje.toFixed(2))
           };
+
+          // Si la rifa está sorteada, incluir info del ganador
+          if (rifa.estado === 'sorteada' && rifa.datos_ganador) {
+            rifaConDatos.ganador = {
+              nombre_completo: rifa.datos_ganador.nombre_completo,
+              numero: rifa.datos_ganador.numero
+            };
+          }
+
+          return rifaConDatos;
         } catch (err) {
           console.error(`❌ Error procesando rifa ${rifa.id}:`, err);
           return { 
@@ -441,13 +452,22 @@ export const getRifaById = async (req, res) => {
     const vendidos = rifa.cantidad_numeros - disponiblesCount;
     const porcentaje = rifa.cantidad_numeros === 0 ? 0 : (vendidos / rifa.cantidad_numeros) * 100;
 
-    res.json({ 
+    const respuesta = { 
       success: true,
       ...rifa, 
       disponibles: disponiblesCount, 
       vendidos, 
-      porcentaje: Number(porcentaje.toFixed(2)) 
-    });
+      porcentaje: Number(porcentaje.toFixed(2))
+    };
+
+    // ✅ INCLUIR INFO DEL GANADOR SI ESTÁ SORTEADA
+    if (rifa.estado === 'sorteada' && rifa.datos_ganador) {
+      respuesta.ganador = rifa.datos_ganador;
+      respuesta.loteria_referencia = rifa.loteria_referencia;
+      respuesta.fecha_sorteo = rifa.fecha_sorteo;
+    }
+
+    res.json(respuesta);
   } catch (err) {
     console.error("🔥 Error interno:", err);
     res.status(500).json({ 
