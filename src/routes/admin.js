@@ -1,7 +1,7 @@
 import express from "express";
 import { loginAdmin, asignarNumerosDirecto } from "../controllers/adminController.js";
 import { verificarAdmin } from "../middleware/authAdmin.js";
-import { sortearRifa, obtenerGanador } from "../controllers/sorteoController.js";
+import { sortearRifa, obtenerGanador, notificarSorteoDesierto } from "../controllers/sorteoController.js";
 
 const router = express.Router();
 
@@ -16,5 +16,8 @@ router.post("/sortear-rifa", verificarAdmin, sortearRifa);
 
 // GET /api/admin/ganador/:rifaId - Obtener ganador de una rifa sorteada
 router.get("/ganador/:rifaId", obtenerGanador);
+
+// POST /api/admin/sorteo-desierto - Notificar sorteo sin ganador y programar nuevo
+router.post("/sorteo-desierto", verificarAdmin, notificarSorteoDesierto);
 
 export default router;

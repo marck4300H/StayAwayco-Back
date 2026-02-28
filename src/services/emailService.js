@@ -527,3 +527,149 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
 </html>
   `;
 };
+
+/**
+ * 📅 Enviar correo de SORTEO DESIERTO
+ */
+export const enviarCorreoSorteoDesierto = async (
+  usuario,
+  rifa,
+  numeroSorteado,
+  numerosUsuario,
+  nuevaFecha,
+  loteriaReferencia
+) => {
+  try {
+    const { data, error } = await resend.emails.send({
+      from: 'StayAway Rifas <noreply@stayaway.com.co>',
+      to: usuario.correo_electronico,
+      subject: `🔄 Sorteo Reprogramado - ${rifa.titulo}`,
+      html: generarTemplateSorteoDesierto(
+        usuario,
+        rifa,
+        numeroSorteado,
+        numerosUsuario,
+        nuevaFecha,
+        loteriaReferencia
+      ),
+    });
+
+    if (error) {
+      console.error('❌ Error Resend (sorteo desierto):', error);
+      return { success: false, error };
+    }
+
+    return { success: true, emailId: data.id };
+  } catch (error) {
+    console.error('❌ Error enviando correo de sorteo desierto:', error);
+    return { success: false, error };
+  }
+};
+/**
+ * 🔄 Template de email para SORTEO DESIERTO
+ */
+const generarTemplateSorteoDesierto = (
+  usuario,
+  rifa,
+  numeroSorteado,
+  numerosUsuario,
+  nuevaFecha,
+  loteriaReferencia
+) => {
+  const fechaFormateada = new Date(nuevaFecha).toLocaleDateString('es-CO', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: #f4f4f4; margin: 0; padding: 20px; }
+    .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .header { background: linear-gradient(135deg, #FFA500 0%, #FF8C00 100%); color: white; padding: 30px 20px; text-align: center; }
+    .content { padding: 30px; }
+    .alert-box { background: #fff3cd; border: 2px solid #ffc107; border-radius: 10px; padding: 20px; margin: 20px 0; text-align: center; }
+    .numero-sorteado { font-size: 36px; font-weight: bold; color: #FF8C00; margin: 15px 0; font-family: monospace; letter-spacing: 3px; }
+    .nueva-fecha-box { background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); color: white; border-radius: 10px; padding: 25px; text-align: center; margin: 25px 0; }
+    .fecha-destacada { font-size: 24px; font-weight: bold; margin: 15px 0; }
+    .numbers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 8px; margin: 20px 0; }
+    .number { background: white; border: 2px solid #e0e0e0; border-radius: 8px; padding: 12px; text-align: center; font-weight: bold; font-size: 14px; font-family: monospace; }
+    .info-box { background: #f9f9f9; border-left: 4px solid #FFA500; padding: 15px; margin: 20px 0; }
+    .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; background: #f9f9f9; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔄 Sorteo Reprogramado</h1>
+      <p style="font-size: 18px; margin: 10px 0;">${rifa.titulo}</p>
+    </div>
+    
+    <div class="content">
+      <h2>Hola ${usuario.nombres} ${usuario.apellidos},</h2>
+      
+      <p>Te informamos sobre un cambio importante en la rifa <strong>"${rifa.titulo}"</strong>.</p>
+
+      <div class="alert-box">
+        <p style="margin: 0; font-size: 16px; color: #856404;">⚠️ <strong>Sorteo Sin Ganador</strong></p>
+        <p style="margin: 10px 0;">El número sorteado fue:</p>
+        <div class="numero-sorteado">#${numeroSorteado}</div>
+        ${loteriaReferencia ? `<p style="margin: 5px 0; font-size: 14px; color: #666;">${loteriaReferencia}</p>` : ''}
+        <p style="margin: 10px 0 0 0; font-size: 14px; color: #856404;">
+          Sin embargo, este número <strong>no fue comprado</strong> por ningún participante.
+        </p>
+      </div>
+
+      <div class="nueva-fecha-box">
+        <p style="margin: 0; font-size: 18px;">📅 <strong>Nuevo Sorteo Programado</strong></p>
+        <div class="fecha-destacada">${fechaFormateada}</div>
+        <p style="margin: 10px 0 0 0;">¡Mantén tus números! Siguen participando en el nuevo sorteo.</p>
+      </div>
+
+      ${numerosUsuario.length > 0 ? `
+        <div class="info-box">
+          <h3 style="margin-top: 0;">🎯 Tus Números Siguen Activos</h3>
+          <p>Todos tus números continúan participando para el nuevo sorteo:</p>
+          <div class="numbers-grid">
+            ${numerosUsuario.slice(0, 20).map(num => `<div class="number">#${num}</div>`).join('')}
+            ${numerosUsuario.length > 20 ? `<div class="number" style="border: none; background: transparent; color: #666;">+${numerosUsuario.length - 20} más</div>` : ''}
+          </div>
+        </div>
+      ` : ''}
+
+      <div class="info-box">
+        <h3 style="margin-top: 0;">ℹ️ ¿Qué significa esto?</h3>
+        <ul style="margin: 10px 0; padding-left: 20px;">
+          <li>✅ Tus números siguen siendo válidos</li>
+          <li>✅ No necesitas hacer nada</li>
+          <li>✅ El sorteo se realizará en la nueva fecha indicada</li>
+          <li>✅ Te notificaremos el resultado por correo</li>
+        </ul>
+      </div>
+
+      <p style="text-align: center; font-size: 16px; color: #4CAF50; font-weight: bold;">
+        ¡Mantente atento al nuevo sorteo!
+      </p>
+      
+      <p style="text-align: center; color: #666;">
+        Gracias por tu comprensión y por participar con StayAway Rifas.
+      </p>
+    </div>
+
+    <div class="footer">
+      <p><strong>StayAway Rifas</strong></p>
+      <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
+      <p>📧 soporte@stayaway.com.co | 🌐 www.stayaway.com.co</p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+};

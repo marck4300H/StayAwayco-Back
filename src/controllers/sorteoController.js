@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "../../supabaseAdminClient.js";
-import { enviarCorreoGanador, enviarCorreoParticipantes } from "../services/emailService.js";
+import { enviarCorreoGanador, enviarCorreoParticipantes, enviarCorreoSorteoDesierto } from "../services/emailService.js";
 
 /**
  * ✅ Calcular cantidad de dígitos necesarios según el total de números de la rifa
@@ -108,12 +108,20 @@ export const sortearRifa = async (req, res) => {
 
     // ✅ VERIFICAR SI EL NÚMERO FUE VENDIDO
     if (!numeroData.comprado_por || !numeroData.usuario_id) {
-      console.log("⚠️ Número no fue vendido");
+      console.log("⚠️ Número no fue vendido - NO SE ENVÍAN CORREOS");
+      
+      // ❌ NO ENVIAR CORREOS - Solo retornar info para que frontend pida nueva fecha
       return res.status(404).json({
         success: false,
+        tipo_error: 'numero_no_vendido',
         message: `El número ${numeroFormateado} no fue vendido en esta rifa. No hay ganador para este número.`,
         numero_consultado: numeroFormateado,
-        rifa_id: rifa_id
+        rifa_id: rifa_id,
+        rifa_info: {
+          id: rifa.id,
+          titulo: rifa.titulo,
+          cantidad_numeros: rifa.cantidad_numeros
+        }
       });
     }
 
@@ -219,7 +227,7 @@ export const sortearRifa = async (req, res) => {
         estadisticas: {
           total_participantes: participantesUnicos.length,
           total_numeros_vendidos: participantes?.length || 0,
-          correos_pendientes: participantesUnicos.length + 1 // ganador + participantes
+          correos_pendientes: participantesUnicos.length + 1
         }
       }
     });
@@ -235,20 +243,15 @@ export const sortearRifa = async (req, res) => {
 };
 
 /**
- * 📧 Enviar correos en segundo plano (async sin await)
- */
-/**
- * 📧 Enviar correos en segundo plano con rate limiting
- * Resend permite 2 requests/segundo, enviamos 1 por segundo para seguridad
+ * 📧 Enviar correos en segundo plano con rate limiting (SORTEO CON GANADOR)
  */
 const enviarCorreosPost = async (ganador, participantes, rifa, numeroFormateado, loteriaReferencia) => {
   try {
     console.log("📧 Iniciando envío de correos con rate limiting...");
     
-    // ✅ Helper para esperar X milisegundos
     const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-    
     const DELAY_ENTRE_CORREOS = 1000; // 1 segundo entre cada correo
+    
     let correosEnviados = 0;
     let erroresEnvio = 0;
 
@@ -335,7 +338,6 @@ const enviarCorreosPost = async (ganador, participantes, rifa, numeroFormateado,
   }
 };
 
-
 /**
  * 🏆 OBTENER GANADOR DE UNA RIFA
  */
@@ -386,5 +388,222 @@ export const obtenerGanador = async (req, res) => {
       success: false,
       message: "Error interno del servidor"
     });
+  }
+};
+
+/**
+ * 📅 NOTIFICAR SORTEO DESIERTO Y PROGRAMAR NUEVO SORTEO
+ */
+export const notificarSorteoDesierto = async (req, res) => {
+  try {
+    const { rifa_id, numero_sorteado, nueva_fecha_sorteo, loteria_referencia } = req.body;
+
+    console.log("📅 Notificación de sorteo desierto:");
+    console.log(`   - Rifa ID: ${rifa_id}`);
+    console.log(`   - Número sorteado: ${numero_sorteado}`);
+    console.log(`   - Nueva fecha: ${nueva_fecha_sorteo}`);
+    console.log(`   - Admin: ${req.admin.email}`);
+
+    // ✅ VALIDACIONES
+    if (!rifa_id || !numero_sorteado || !nueva_fecha_sorteo) {
+      return res.status(400).json({
+        success: false,
+        message: "Faltan campos obligatorios: rifa_id, numero_sorteado y nueva_fecha_sorteo"
+      });
+    }
+
+    // ✅ 1. VERIFICAR QUE LA RIFA EXISTE Y ESTÁ ACTIVA
+    const { data: rifa, error: rifaError } = await supabaseAdmin
+      .from("rifas")
+      .select("*")
+      .eq("id", rifa_id)
+      .single();
+
+    if (rifaError || !rifa) {
+      return res.status(404).json({
+        success: false,
+        message: "Rifa no encontrada"
+      });
+    }
+
+    if (rifa.estado !== 'activa') {
+      return res.status(400).json({
+        success: false,
+        message: "Esta rifa no está activa"
+      });
+    }
+
+    console.log(`✅ Rifa encontrada: ${rifa.titulo}`);
+
+    // ✅ 2. VALIDAR LA NUEVA FECHA
+    const nuevaFecha = new Date(nueva_fecha_sorteo);
+    const ahora = new Date();
+
+    if (nuevaFecha <= ahora) {
+      return res.status(400).json({
+        success: false,
+        message: "La nueva fecha de sorteo debe ser futura"
+      });
+    }
+
+    // ✅ 3. FORMATEAR NÚMERO
+    const digitosFormato = calcularDigitos(rifa.cantidad_numeros);
+    const numeroFormateado = formatearNumero(parseInt(numero_sorteado), digitosFormato);
+
+    // ✅ 4. OBTENER TODOS LOS PARTICIPANTES
+    const { data: participantes, error: participantesError } = await supabaseAdmin
+      .from("numeros")
+      .select(`
+        usuario_id,
+        usuarios (
+          id,
+          nombres,
+          apellidos,
+          correo_electronico
+        )
+      `)
+      .eq("rifa_id", rifa_id)
+      .not("usuario_id", "is", null);
+
+    if (participantesError) {
+      console.error("❌ Error obteniendo participantes:", participantesError);
+      throw participantesError;
+    }
+
+    // Eliminar duplicados
+    const participantesUnicos = participantes?.reduce((acc, curr) => {
+      const existe = acc.find(p => p.usuarios?.id === curr.usuarios?.id);
+      if (!existe && curr.usuarios) {
+        acc.push(curr);
+      }
+      return acc;
+    }, []) || [];
+
+    console.log(`📊 Total participantes: ${participantesUnicos.length}`);
+
+    if (participantesUnicos.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No hay participantes para notificar"
+      });
+    }
+
+    // ✅ 5. OBTENER NÚMEROS DE CADA PARTICIPANTE
+    const { data: numerosParticipantes } = await supabaseAdmin
+      .from("numeros")
+      .select("numero, usuario_id")
+      .eq("rifa_id", rifa_id)
+      .not("usuario_id", "is", null);
+
+    const numerosMap = {};
+    numerosParticipantes?.forEach(n => {
+      if (!numerosMap[n.usuario_id]) {
+        numerosMap[n.usuario_id] = [];
+      }
+      numerosMap[n.usuario_id].push(formatearNumero(n.numero, digitosFormato));
+    });
+
+    // ✅ 6. ENVIAR CORREOS EN SEGUNDO PLANO CON RATE LIMITING
+    enviarCorreosSorteoDesiertoPost(
+      participantesUnicos,
+      numerosMap,
+      rifa,
+      numeroFormateado,
+      nuevaFecha,
+      loteria_referencia
+    );
+
+    // ✅ 7. RESPUESTA INMEDIATA AL FRONTEND
+    res.json({
+      success: true,
+      message: "Notificaciones de sorteo desierto enviándose",
+      data: {
+        rifa: {
+          id: rifa.id,
+          titulo: rifa.titulo,
+          estado: 'activa'
+        },
+        numero_sorteado: numeroFormateado,
+        nueva_fecha_sorteo: nueva_fecha_sorteo,
+        loteria_referencia: loteria_referencia || null,
+        estadisticas: {
+          total_participantes: participantesUnicos.length,
+          correos_pendientes: participantesUnicos.length
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error en notificarSorteoDesierto:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * 📧 Enviar correos de sorteo desierto con rate limiting (1 por segundo)
+ */
+const enviarCorreosSorteoDesiertoPost = async (
+  participantes,
+  numerosMap,
+  rifa,
+  numeroSorteado,
+  nuevaFecha,
+  loteriaReferencia
+) => {
+  try {
+    console.log("📧 Iniciando envío de correos de sorteo desierto con rate limiting...");
+    
+    const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    const DELAY_ENTRE_CORREOS = 1000; // 1 segundo entre cada correo
+    
+    let correosEnviados = 0;
+    let erroresEnvio = 0;
+
+    for (let i = 0; i < participantes.length; i++) {
+      const participante = participantes[i];
+      
+      try {
+        const numerosUsuario = numerosMap[participante.usuarios.id] || [];
+        
+        console.log(`📧 [${i + 1}/${participantes.length}] Enviando a: ${participante.usuarios.correo_electronico}`);
+        
+        await enviarCorreoSorteoDesierto(
+          participante.usuarios,
+          rifa,
+          numeroSorteado,
+          numerosUsuario,
+          nuevaFecha,
+          loteriaReferencia
+        );
+        
+        correosEnviados++;
+        console.log(`✅ [${i + 1}/${participantes.length}] Correo enviado`);
+        
+      } catch (error) {
+        console.error(`❌ Error enviando correo a ${participante.usuarios.correo_electronico}:`, error.message);
+        erroresEnvio++;
+      }
+
+      // ⏱️ DELAY entre cada correo (excepto el último)
+      if (i < participantes.length - 1) {
+        await delay(DELAY_ENTRE_CORREOS);
+      }
+    }
+
+    console.log("\n📊 ═══════════════════════════════════════");
+    console.log("   RESUMEN - SORTEO DESIERTO");
+    console.log("═══════════════════════════════════════");
+    console.log(`✅ Correos enviados: ${correosEnviados}`);
+    console.log(`❌ Errores: ${erroresEnvio}`);
+    console.log(`📬 Total: ${correosEnviados + erroresEnvio}`);
+    console.log(`⏱️  Tiempo estimado: ~${Math.ceil((correosEnviados + erroresEnvio) * (DELAY_ENTRE_CORREOS / 1000))} segundos`);
+    console.log("═══════════════════════════════════════\n");
+
+  } catch (error) {
+    console.error("❌ Error crítico enviando correos:", error);
   }
 };
