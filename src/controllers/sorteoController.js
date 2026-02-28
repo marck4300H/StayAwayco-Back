@@ -237,15 +237,36 @@ export const sortearRifa = async (req, res) => {
 /**
  * 📧 Enviar correos en segundo plano (async sin await)
  */
+/**
+ * 📧 Enviar correos en segundo plano con rate limiting
+ * Resend permite 2 requests/segundo, enviamos 1 por segundo para seguridad
+ */
 const enviarCorreosPost = async (ganador, participantes, rifa, numeroFormateado, loteriaReferencia) => {
   try {
-    console.log("📧 Iniciando envío de correos...");
+    console.log("📧 Iniciando envío de correos con rate limiting...");
+    
+    // ✅ Helper para esperar X milisegundos
+    const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    
+    const DELAY_ENTRE_CORREOS = 1000; // 1 segundo entre cada correo
+    let correosEnviados = 0;
+    let erroresEnvio = 0;
 
-    // 1. Enviar correo al ganador
-    await enviarCorreoGanador(ganador, rifa, numeroFormateado, loteriaReferencia);
-    console.log("✅ Correo al ganador enviado");
+    // 1️⃣ Enviar correo al ganador primero
+    try {
+      console.log(`📧 [1/${participantes.length + 1}] Enviando correo al ganador: ${ganador.correo_electronico}`);
+      await enviarCorreoGanador(ganador, rifa, numeroFormateado, loteriaReferencia);
+      correosEnviados++;
+      console.log(`✅ Correo al ganador enviado exitosamente`);
+    } catch (error) {
+      console.error("❌ Error enviando correo al ganador:", error.message);
+      erroresEnvio++;
+    }
 
-    // 2. Obtener números de cada participante
+    // Esperar antes de enviar correos a participantes
+    await delay(DELAY_ENTRE_CORREOS);
+
+    // 2️⃣ Obtener números de cada participante
     const { data: numerosParticipantes } = await supabaseAdmin
       .from("numeros")
       .select("numero, usuario_id")
@@ -261,11 +282,22 @@ const enviarCorreosPost = async (ganador, participantes, rifa, numeroFormateado,
       numerosMap[n.usuario_id].push(formatearNumero(n.numero, calcularDigitos(rifa.cantidad_numeros)));
     });
 
-    // 3. Enviar correos a participantes (excluyendo al ganador)
-    let correosEnviados = 0;
-    for (const participante of participantes) {
-      if (participante.usuarios.id !== ganador.id) {
+    // 3️⃣ Enviar correos a participantes UNO POR UNO con delay
+    const totalParticipantes = participantes.length;
+    
+    for (let i = 0; i < participantes.length; i++) {
+      const participante = participantes[i];
+      
+      // Saltar al ganador (ya le enviamos correo)
+      if (participante.usuarios.id === ganador.id) {
+        continue;
+      }
+
+      try {
         const numerosUsuario = numerosMap[participante.usuarios.id] || [];
+        
+        console.log(`📧 [${i + 2}/${totalParticipantes + 1}] Enviando correo a: ${participante.usuarios.correo_electronico}`);
+        
         await enviarCorreoParticipantes(
           participante.usuarios,
           rifa,
@@ -273,15 +305,36 @@ const enviarCorreosPost = async (ganador, participantes, rifa, numeroFormateado,
           numerosUsuario,
           loteriaReferencia
         );
+        
         correosEnviados++;
+        console.log(`✅ [${i + 2}/${totalParticipantes + 1}] Correo enviado exitosamente`);
+        
+      } catch (error) {
+        console.error(`❌ Error enviando correo a ${participante.usuarios.correo_electronico}:`, error.message);
+        erroresEnvio++;
+      }
+
+      // ⏱️ DELAY de 1 segundo entre cada correo (excepto el último)
+      if (i < participantes.length - 1) {
+        await delay(DELAY_ENTRE_CORREOS);
       }
     }
 
-    console.log(`✅ ${correosEnviados} correos a participantes enviados`);
+    // 4️⃣ Resumen final
+    console.log("\n📊 ═══════════════════════════════════════");
+    console.log("   RESUMEN DE ENVÍO DE CORREOS");
+    console.log("═══════════════════════════════════════");
+    console.log(`✅ Correos enviados exitosamente: ${correosEnviados}`);
+    console.log(`❌ Errores en envío: ${erroresEnvio}`);
+    console.log(`📬 Total procesados: ${correosEnviados + erroresEnvio}`);
+    console.log(`⏱️  Tiempo estimado: ~${Math.ceil((correosEnviados + erroresEnvio) * (DELAY_ENTRE_CORREOS / 1000))} segundos`);
+    console.log("═══════════════════════════════════════\n");
+
   } catch (error) {
-    console.error("⚠️ Error enviando correos (no crítico):", error);
+    console.error("❌ Error crítico en envío de correos:", error);
   }
 };
+
 
 /**
  * 🏆 OBTENER GANADOR DE UNA RIFA
