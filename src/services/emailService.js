@@ -1397,19 +1397,19 @@ const generarTemplateSorteoDesierto = (
     </div>
     
     <div class="content">
-      <h2>Estimado/a ${participante.nombres} ${participante.apellidos},</h2>
+      <h2>Estimado/a ${usuario.nombres} ${usuario.apellidos},</h2>
       <p>Te informamos que se ha realizado el sorteo de la rifa en la que participaste. Sin embargo, el número sorteado no fue adquirido por ningún participante.</p>
       
       <div class="alert-box">
         <h3>Número Sorteado (No Vendido)</h3>
-        <div class="numero-sorteado">#${numero_sorteado}</div>
+        <div class="numero-sorteado">#${numeroSorteado}</div>
         <p>Este número no tiene comprador asignado, por lo que se procederá a un nuevo sorteo.</p>
       </div>
 
       <div class="new-date-box">
         <h3>Nuevo Sorteo Programado</h3>
         <p>La nueva fecha para el sorteo es:</p>
-        <div class="new-date">${new Date(nueva_fecha_sorteo).toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+        <div class="new-date">${fechaFormateada}</div>
       </div>
 
       <div class="info-box">
@@ -1422,10 +1422,10 @@ const generarTemplateSorteoDesierto = (
           <span class="info-label">Estado:</span>
           <span class="info-value">Activa (sigue disponible para compra)</span>
         </div>
-        ${loteria_referencia ? `
+        ${loteriaReferencia ? `
         <div class="info-row">
           <span class="info-label">Lotería de referencia:</span>
-          <span class="info-value">${loteria_referencia}</span>
+          <span class="info-value">${loteriaReferencia}</span>
         </div>
         ` : ''}
       </div>
@@ -1433,9 +1433,9 @@ const generarTemplateSorteoDesierto = (
       <div class="numbers-section">
         <h3>Tus Números Siguen Participando</h3>
         <div class="numbers-grid">
-          ${numeros_participante.slice(0, 20).map(numero => `<div class="number">#${numero}</div>`).join('')}
+          ${numerosUsuario.slice(0, 20).map(numero => `<div class="number">#${numero}</div>`).join('')}
         </div>
-        ${numeros_participante.length > 20 ? `<p style="text-align: center; color: #666666; font-size: 14px;">Y ${numeros_participante.length - 20} números más...</p>` : ''}
+        ${numerosUsuario.length > 20 ? `<p style="text-align: center; color: #666666; font-size: 14px;">Y ${numerosUsuario.length - 20} números más...</p>` : ''}
       </div>
 
       <div class="divider"></div>
