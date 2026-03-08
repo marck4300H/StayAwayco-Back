@@ -876,7 +876,7 @@ const generarTemplateGanador = (ganador, rifa, numeroGanador, loteriaReferencia)
       
       <div class="winner-banner">
         <p class="winner-label">Número Ganador</p>
-        <div class="winner-number">#${ganador.numero}</div>
+        <div class="winner-number">#${numeroGanador}</div>
       </div>
 
       <div class="info-box">
@@ -889,10 +889,10 @@ const generarTemplateGanador = (ganador, rifa, numeroGanador, loteriaReferencia)
           <span class="info-label">Fecha del sorteo:</span>
           <span class="info-value">${new Date(rifa.fecha_sorteo).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
         </div>
-        ${loteria_referencia ? `
+        ${loteriaReferencia ? `
         <div class="info-row">
           <span class="info-label">Lotería de referencia:</span>
-          <span class="info-value">${loteria_referencia}</span>
+          <span class="info-value">${loteriaReferencia}</span>
         </div>
         ` : ''}
       </div>
@@ -1003,12 +1003,6 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
       margin: 15px 0;
       letter-spacing: 2px;
     }
-    .winner-name {
-      font-size: 18px;
-      color: #1a1a1a;
-      font-weight: 600;
-      margin: 10px 0;
-    }
     .info-box {
       background: #f8f9fa;
       border-left: 4px solid #c8a951;
@@ -1108,13 +1102,12 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
     </div>
     
     <div class="content">
-      <h2>Estimado/a ${participante.nombres} ${participante.apellidos},</h2>
+      <h2>Estimado/a ${usuario.nombres} ${usuario.apellidos},</h2>
       <p>Te informamos que el sorteo de la rifa en la que participaste ha sido realizado exitosamente. A continuación te presentamos los resultados oficiales:</p>
       
       <div class="winner-box">
         <h3>Número Ganador</h3>
-        <div class="winner-number">#${numero_ganador}</div>
-        <p class="winner-name">Ganador: ${ganador_nombre}</p>
+        <div class="winner-number">#${numeroGanador}</div>
       </div>
 
       <div class="info-box">
@@ -1125,12 +1118,12 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
         </div>
         <div class="info-row">
           <span class="info-label">Fecha del sorteo:</span>
-          <span class="info-value">${new Date(fecha_sorteo).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+          <span class="info-value">${new Date(rifa.fecha_sorteo).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
         </div>
-        ${loteria_referencia ? `
+        ${loteriaReferencia ? `
         <div class="info-row">
           <span class="info-label">Lotería de referencia:</span>
-          <span class="info-value">${loteria_referencia}</span>
+          <span class="info-value">${loteriaReferencia}</span>
         </div>
         ` : ''}
       </div>
@@ -1138,9 +1131,9 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
       <div class="numbers-section">
         <h3>Tus Números Participantes</h3>
         <div class="numbers-grid">
-          ${numeros_participante.slice(0, 20).map(numero => `<div class="number">#${numero}</div>`).join('')}
+          ${numerosUsuario.slice(0, 20).map(numero => `<div class="number">#${numero}</div>`).join('')}
         </div>
-        ${numeros_participante.length > 20 ? `<p style="text-align: center; color: #666666; font-size: 14px;">Y ${numeros_participante.length - 20} números más...</p>` : ''}
+        ${numerosUsuario.length > 20 ? `<p style="text-align: center; color: #666666; font-size: 14px;">Y ${numerosUsuario.length - 20} números más...</p>` : ''}
       </div>
 
       <div class="divider"></div>
