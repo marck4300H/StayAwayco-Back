@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import PDFDocument from 'pdfkit';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -48,15 +49,32 @@ const inicializarResend = async () => {
 inicializarResend();
 
 /**
- * Enviar correo de confirmación de compra
+ * 📧 Enviar correo de compra con PDF adjunto
  */
 export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsignados) => {
   try {
+    console.log('📄 Generando PDF de números...');
+    
+    // Generar PDF
+    const pdfBuffer = await generarPDFNumeros(
+      usuario, 
+      { titulo: transaccion.rifaTitulo, id: transaccion.rifa_id }, 
+      numerosAsignados
+    );
+
+    console.log('✅ PDF generado exitosamente');
+
     const { data, error } = await resend.emails.send({
       from: 'StayAway Rifas <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: `🎉 ¡Compra Exitosa! - ${transaccion.rifaTitulo}`,
       html: generarTemplateCompra(usuario, transaccion, numerosAsignados),
+      attachments: [
+        {
+          content: pdfBuffer.toString('base64'),
+          filename: `StayAway_Numeros_${transaccion.referencia}.pdf`,
+        }
+      ]
     });
 
     if (error) {
@@ -64,10 +82,10 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
       return { success: false, error };
     }
 
-    console.log('✅ Correo de compra enviado:', data.id);
+    console.log('✅ Correo con PDF enviado:', data.id);
     return { success: true, emailId: data.id };
   } catch (error) {
-    console.error('❌ Error enviando correo de compra:', error);
+    console.error('❌ Error enviando correo con PDF:', error);
     return { success: false, error };
   }
 };
@@ -697,15 +715,26 @@ export const enviarCorreoGanador = async (ganador, rifa, numeroGanador, loteriaR
 };
 
 /**
- * 📧 Enviar correo a PARTICIPANTES (no ganadores)
+ * 📧 Enviar correo a PARTICIPANTES con PDF adjunto
  */
 export const enviarCorreoParticipantes = async (usuario, rifa, numeroGanador, numerosUsuario, loteriaReferencia) => {
   try {
+    console.log('📄 Generando PDF de números para participante...');
+    
+    // Generar PDF
+    const pdfBuffer = await generarPDFNumeros(usuario, rifa, numerosUsuario);
+
     const { data, error } = await resend.emails.send({
       from: 'StayAway Rifas <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: `🎲 Rifa Sorteada - ${rifa.titulo}`,
       html: generarTemplateParticipantes(usuario, rifa, numeroGanador, numerosUsuario, loteriaReferencia),
+      attachments: [
+        {
+          content: pdfBuffer.toString('base64'),
+          filename: `StayAway_Numeros_Rifa_${rifa.id}.pdf`,
+        }
+      ]
     });
 
     if (error) {
@@ -1159,7 +1188,7 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
 };
 
 /**
- * 📅 Enviar correo de SORTEO DESIERTO
+ * 📅 Enviar correo de SORTEO DESIERTO con PDF adjunto
  */
 export const enviarCorreoSorteoDesierto = async (
   usuario,
@@ -1170,6 +1199,11 @@ export const enviarCorreoSorteoDesierto = async (
   loteriaReferencia
 ) => {
   try {
+    console.log('📄 Generando PDF de números para sorteo desierto...');
+    
+    // Generar PDF
+    const pdfBuffer = await generarPDFNumeros(usuario, rifa, numerosUsuario);
+
     const { data, error } = await resend.emails.send({
       from: 'StayAway Rifas <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
@@ -1182,6 +1216,12 @@ export const enviarCorreoSorteoDesierto = async (
         nuevaFecha,
         loteriaReferencia
       ),
+      attachments: [
+        {
+          content: pdfBuffer.toString('base64'),
+          filename: `StayAway_Numeros_Sorteo_Desierto_${rifa.id}.pdf`,
+        }
+      ]
     });
 
     if (error) {
