@@ -264,44 +264,60 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
 
 
 /**
- * 📧 Enviar correo de compra con PDF adjunto
+ * 📧 Enviar correo de compra exitosa con PDF adjunto - CON NÚMEROS GRATIS
  */
 export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsignados) => {
   try {
-    console.log('📄 Generando PDF de números...');
+    console.log(`📧 Enviando correo de compra a: ${usuario.correo_electronico}`);
+    console.log(`   - Números comprados: ${transaccion.cantidad}`);
+    console.log(`   - Números gratis: ${transaccion.numerosGratis || 0}`);
+    console.log(`   - Total entregado: ${numerosAsignados.length}`);
+
+    // ✅ Generar PDF con los números
+    console.log("📄 Generando PDF de números...");
     
-    // Generar PDF
-    const pdfBuffer = await generarPDFNumeros(
-      usuario, 
-      { titulo: transaccion.rifaTitulo, id: transaccion.rifa_id }, 
-      numerosAsignados
-    );
+    // Datos de la rifa para el PDF
+    const rifaData = {
+      titulo: transaccion.rifaTitulo,
+      cantidad_numeros: transaccion.cantidad // Para calcular dígitos
+    };
 
-    console.log('✅ PDF generado exitosamente');
+    const pdfBuffer = await generarPDFNumeros(usuario, rifaData, numerosAsignados);
+    console.log("✅ PDF generado exitosamente");
 
+    // ✅ Convertir PDF a base64 para adjuntar
+    const pdfBase64 = pdfBuffer.toString('base64');
+
+    // ✅ Generar HTML del correo
+    const htmlContent = generarTemplateCompra(usuario, transaccion, numerosAsignados);
+
+    // ✅ Enviar correo con Resend
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <noreply@stayaway.com.co>',
-      to: usuario.correo_electronico,
-      subject: `🎉 ¡Compra Exitosa! - ${transaccion.rifaTitulo}`,
-      html: generarTemplateCompra(usuario, transaccion, numerosAsignados),
+      from: 'StayAway Rifas <noreply@stayawayrifas.com>',
+      to: [usuario.correo_electronico],
+      subject: `✅ Compra Exitosa - ${transaccion.rifaTitulo}${transaccion.numerosGratis > 0 ? ' 🎁 ¡Con números gratis!' : ''}`,
+      html: htmlContent,
       attachments: [
         {
-          content: pdfBuffer.toString('base64'),
-          filename: `StayAway_Numeros_${transaccion.referencia}.pdf`,
+          filename: `StayAway_Numeros_Rifa_${transaccion.referencia}.pdf`,
+          content: pdfBase64,
+          type: 'application/pdf',
+          disposition: 'attachment'
         }
       ]
     });
 
     if (error) {
-      console.error('❌ Error Resend:', error);
-      return { success: false, error };
+      console.error('❌ Error enviando correo de compra:', error);
+      throw error;
     }
 
-    console.log('✅ Correo con PDF enviado:', data.id);
-    return { success: true, emailId: data.id };
+    console.log('✅ Correo de compra enviado exitosamente:', data.id);
+    return data;
+
   } catch (error) {
-    console.error('❌ Error enviando correo con PDF:', error);
-    return { success: false, error };
+    console.error('❌ Error en enviarCorreoCompraExitosa:', error);
+    throw error;
   }
 };
 
@@ -386,207 +402,375 @@ export const probarConfiguracionEmail = async () => {
 };
 
 /**
- * Templates de correo (MANTENER IGUAL)
+ * 📧 Template HTML para correo de compra exitosa - CON NÚMEROS GRATIS
  */
 const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
+  const tienePaqueteGratis = transaccion.numerosGratis && transaccion.numerosGratis > 0;
+  
   return `
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compra Exitosa - StayAway Rifas</title>
   <style>
-    body { 
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-      line-height: 1.6; 
-      color: #333333; 
-      background-color: #f5f5f5;
+    * {
       margin: 0;
       padding: 0;
+      box-sizing: border-box;
     }
-    .container { 
-      max-width: 600px; 
-      margin: 30px auto; 
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 20px;
+    }
+    .email-container {
+      max-width: 600px;
+      margin: 0 auto;
       background: #ffffff;
-      border-radius: 12px;
+      border-radius: 16px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
     }
-    .header { 
-      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%); 
-      color: #ffffff; 
-      padding: 40px 30px; 
+    .header {
+      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%);
+      padding: 40px 30px;
       text-align: center;
+      color: white;
     }
     .header h1 {
-      margin: 0 0 10px 0;
-      font-size: 28px;
-      font-weight: 700;
+      font-size: 32px;
+      margin-bottom: 10px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
     }
     .header p {
-      margin: 0;
-      font-size: 16px;
+      font-size: 18px;
       opacity: 0.95;
     }
-    .content { 
+    .content {
       padding: 40px 30px;
     }
-    .content h2 {
-      color: #1a1a1a;
-      font-size: 22px;
-      margin: 0 0 20px 0;
+    .success-icon {
+      text-align: center;
+      font-size: 80px;
+      margin-bottom: 20px;
     }
-    .content p {
-      color: #555555;
-      font-size: 15px;
-      margin: 15px 0;
+    .greeting {
+      font-size: 24px;
+      color: #333;
+      margin-bottom: 20px;
+      text-align: center;
     }
-    .info-box {
-      background: #f8f9fa;
-      border-left: 4px solid #c8a951;
-      padding: 25px;
-      border-radius: 8px;
-      margin: 25px 0;
+    .message {
+      font-size: 16px;
+      color: #666;
+      line-height: 1.6;
+      margin-bottom: 30px;
+      text-align: center;
     }
-    .info-box h3 {
-      color: #c8a951;
+    
+    /* ✨ SECCIÓN DE PROMOCIÓN (SI APLICA) */
+    .promo-banner {
+      background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+      color: white;
+      padding: 20px;
+      border-radius: 12px;
+      margin: 30px 0;
+      text-align: center;
+      border: 3px solid #2e7d32;
+      box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+    }
+    .promo-banner .gift-icon {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+    .promo-banner h2 {
+      font-size: 24px;
+      margin-bottom: 10px;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+    }
+    .promo-banner p {
       font-size: 18px;
-      margin: 0 0 15px 0;
-      font-weight: 600;
+      font-weight: bold;
+    }
+    .promo-banner .promo-details {
+      background: rgba(255,255,255,0.2);
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+      font-size: 16px;
+    }
+    
+    .transaction-info {
+      background: #f8f9fa;
+      border-radius: 12px;
+      padding: 25px;
+      margin: 30px 0;
+      border-left: 5px solid #c8a951;
     }
     .info-row {
       display: flex;
       justify-content: space-between;
-      padding: 10px 0;
+      padding: 12px 0;
       border-bottom: 1px solid #e0e0e0;
     }
     .info-row:last-child {
       border-bottom: none;
     }
     .info-label {
-      color: #666666;
       font-weight: 600;
+      color: #555;
+      font-size: 15px;
     }
     .info-value {
-      color: #1a1a1a;
+      color: #333;
+      font-weight: 500;
+      font-size: 15px;
+    }
+    .info-value.highlight {
+      color: #c8a951;
       font-weight: 700;
+      font-size: 18px;
+    }
+    .info-value.promo {
+      color: #4caf50;
+      font-weight: 700;
+      font-size: 16px;
     }
     .numbers-section {
       margin: 30px 0;
     }
-    .numbers-section h3 {
-      color: #1a1a1a;
-      font-size: 18px;
-      margin: 0 0 20px 0;
-    }
-    .numbers-grid { 
-      display: grid; 
-      grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); 
-      gap: 10px; 
-      margin: 20px 0;
-    }
-    .number { 
-      background: #ffffff;
-      border: 2px solid #c8a951; 
-      border-radius: 8px; 
-      padding: 12px; 
-      text-align: center; 
-      font-weight: 700; 
-      font-size: 16px;
+    .section-title {
+      font-size: 20px;
       color: #c8a951;
-      font-family: 'Courier New', monospace;
-    }
-    .success-message {
-      background: linear-gradient(135deg, #e8f5e9 0%, #f1f8f4 100%);
-      border: 2px solid #4caf50;
-      border-radius: 8px;
-      padding: 20px;
+      margin-bottom: 20px;
       text-align: center;
-      margin: 25px 0;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
     }
-    .success-message p {
-      color: #2e7d32;
-      font-weight: 600;
+    .numbers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .number-box {
+      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      text-align: center;
+      font-weight: bold;
+      font-size: 18px;
+      box-shadow: 0 2px 8px rgba(200, 169, 81, 0.3);
+      transition: transform 0.2s;
+    }
+    .number-box:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 4px 12px rgba(200, 169, 81, 0.5);
+    }
+    .attachment-note {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 20px 0;
+      text-align: center;
+      color: #856404;
+    }
+    .attachment-note strong {
+      display: block;
       font-size: 16px;
-      margin: 0;
+      margin-bottom: 5px;
     }
-    .footer { 
-      background: #1a1a1a;
+    .cta-button {
+      display: inline-block;
+      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%);
+      color: white;
+      padding: 15px 40px;
+      border-radius: 30px;
+      text-decoration: none;
+      font-weight: bold;
+      font-size: 16px;
+      margin: 20px auto;
+      text-align: center;
+      box-shadow: 0 4px 15px rgba(200, 169, 81, 0.4);
+      transition: transform 0.2s;
+    }
+    .cta-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(200, 169, 81, 0.6);
+    }
+    .footer {
+      background: #2c2c2c;
       color: #ffffff;
-      text-align: center; 
       padding: 30px;
+      text-align: center;
+      font-size: 14px;
     }
     .footer p {
-      margin: 10px 0;
-      font-size: 14px;
-      color: #cccccc;
+      margin: 5px 0;
+      opacity: 0.9;
     }
-    .footer a {
+    .footer .social-links {
+      margin-top: 20px;
+    }
+    .footer .social-links a {
       color: #c8a951;
       text-decoration: none;
+      margin: 0 10px;
+      font-weight: 600;
     }
-    .divider {
-      height: 1px;
-      background: #e0e0e0;
-      margin: 30px 0;
+    @media only screen and (max-width: 600px) {
+      .header h1 {
+        font-size: 24px;
+      }
+      .numbers-grid {
+        grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+        gap: 8px;
+      }
+      .number-box {
+        padding: 12px;
+        font-size: 16px;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="email-container">
+    <!-- Header -->
     <div class="header">
-      <h1>Compra Exitosa</h1>
-      <p>Gracias por participar en nuestra rifa</p>
+      <h1>🎉 StayAway Rifas</h1>
+      <p>¡Tu compra fue exitosa!</p>
     </div>
-    
+
+    <!-- Content -->
     <div class="content">
-      <h2>Hola ${usuario.nombres} ${usuario.apellidos},</h2>
-      <p>Tu compra ha sido procesada exitosamente. A continuación encontrarás los detalles completos de tu participación:</p>
+      <div class="success-icon">✅</div>
       
-      <div class="info-box">
-        <h3>Detalles de la Compra</h3>
+      <h2 class="greeting">¡Hola, ${usuario.nombres} ${usuario.apellidos}!</h2>
+      
+      <p class="message">
+        Tu compra ha sido procesada exitosamente. ${tienePaqueteGratis ? '¡Y tienes números de regalo!' : 'Ya estás participando en la rifa.'} 
+        A continuación encontrarás todos los detalles de tu transacción.
+      </p>
+
+      ${tienePaqueteGratis ? `
+      <!-- 🎁 BANNER DE PROMOCIÓN -->
+      <div class="promo-banner">
+        <div class="gift-icon">🎁</div>
+        <h2>¡Felicidades! Obtuviste números GRATIS</h2>
+        <p>Por tu compra de ${transaccion.cantidad} números</p>
+        <div class="promo-details">
+          🎉 Recibiste <strong>+${transaccion.numerosGratis} ${transaccion.numerosGratis === 1 ? 'número' : 'números'} de regalo</strong> 🎉
+          <br><br>
+          <strong>Total entregado: ${transaccion.cantidadTotal} números</strong>
+        </div>
+      </div>
+      ` : ''}
+
+      <!-- Información de la transacción -->
+      <div class="transaction-info">
         <div class="info-row">
           <span class="info-label">Rifa:</span>
-          <span class="info-value">${transaccion.rifaTitulo}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">Cantidad de números:</span>
-          <span class="info-value">${transaccion.cantidad}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">Total pagado:</span>
-          <span class="info-value">$${transaccion.total.toLocaleString('es-CO')}</span>
+          <span class="info-value highlight">${transaccion.rifaTitulo}</span>
         </div>
         <div class="info-row">
           <span class="info-label">Referencia:</span>
           <span class="info-value">${transaccion.referencia}</span>
         </div>
         <div class="info-row">
+          <span class="info-label">Números comprados:</span>
+          <span class="info-value">${transaccion.cantidad}</span>
+        </div>
+        ${tienePaqueteGratis ? `
+        <div class="info-row">
+          <span class="info-label">🎁 Números GRATIS:</span>
+          <span class="info-value promo">+${transaccion.numerosGratis}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">📊 Total entregado:</span>
+          <span class="info-value highlight">${transaccion.cantidadTotal}</span>
+        </div>
+        ` : ''}
+        <div class="info-row">
+          <span class="info-label">Total pagado:</span>
+          <span class="info-value highlight">$${transaccion.total.toLocaleString('es-CO')}</span>
+        </div>
+        <div class="info-row">
           <span class="info-label">Fecha:</span>
-          <span class="info-value">${new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+          <span class="info-value">${new Date().toLocaleDateString('es-CO', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          })}</span>
         </div>
       </div>
 
+      <!-- Nota sobre el PDF adjunto -->
+      <div class="attachment-note">
+        <strong>📎 Archivo adjunto:</strong>
+        Hemos incluido un PDF con todos tus números en alta calidad.
+        ${tienePaqueteGratis ? '<br><strong>Incluye tus números comprados Y los números gratis. 🎁</strong>' : ''}
+      </div>
+
+      <!-- Tus números -->
       <div class="numbers-section">
-        <h3>Tus Números Asignados</h3>
+        <h3 class="section-title">🎯 Tus Números de la Suerte</h3>
+        <p style="text-align: center; color: #666; margin-bottom: 20px;">
+          ${tienePaqueteGratis 
+            ? `Has recibido un total de <strong>${transaccion.cantidadTotal} números</strong> (${transaccion.cantidad} comprados + ${transaccion.numerosGratis} gratis)`
+            : `Total: ${numerosAsignados.length} números`
+          }
+        </p>
         <div class="numbers-grid">
-          ${numerosAsignados.map(numero => `<div class="number">#${numero}</div>`).join('')}
+          ${numerosAsignados.slice(0, 30).map(num => `
+            <div class="number-box">#${num}</div>
+          `).join('')}
+          ${numerosAsignados.length > 30 ? `
+            <div style="grid-column: 1 / -1; text-align: center; padding: 20px; color: #666; font-style: italic;">
+              ... y ${numerosAsignados.length - 30} números más en el PDF adjunto
+            </div>
+          ` : ''}
         </div>
       </div>
 
-      <div class="success-message">
-        <p>Buena suerte. Los resultados del sorteo se publicarán en nuestras redes sociales.</p>
+      <!-- Call to Action -->
+      <div style="text-align: center; margin: 40px 0;">
+        <a href="${process.env.FRONTEND_URL || 'https://stayaway.com'}" class="cta-button">
+          Ver Mis Rifas
+        </a>
       </div>
 
-      <div class="divider"></div>
-
-      <p style="color: #666666; font-size: 14px;">Puedes ver tus números en cualquier momento accediendo a tu perfil en nuestra plataforma web.</p>
+      <!-- Mensaje final -->
+      <div style="background: #e8f5e9; border-left: 4px solid #4caf50; padding: 15px; border-radius: 8px; margin-top: 30px;">
+        <p style="color: #2e7d32; font-size: 15px; margin: 0;">
+          <strong>¡Mucha suerte! 🍀</strong><br>
+          Guarda este correo y el PDF adjunto como comprobante de tu participación.
+          ${tienePaqueteGratis ? '<br><br><strong>Gracias por aprovechar nuestras promociones. 🎉</strong>' : ''}
+        </p>
+      </div>
     </div>
-    
+
+    <!-- Footer -->
     <div class="footer">
-      <p style="font-weight: 600; font-size: 16px; color: #c8a951;">StayAway Rifas</p>
-      <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
-      <p>Si tienes alguna pregunta, contáctanos en <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
+      <p><strong>StayAway Rifas</strong></p>
+      <p>Tu plataforma de rifas en línea</p>
+      <p style="margin-top: 15px; font-size: 12px; opacity: 0.7;">
+        Este es un correo automático, por favor no responder.
+      </p>
+      <div class="social-links">
+        <a href="#">Facebook</a>
+        <a href="#">Instagram</a>
+        <a href="#">Twitter</a>
+      </div>
+      <p style="margin-top: 20px; font-size: 12px; opacity: 0.6;">
+        © ${new Date().getFullYear()} StayAway Rifas. Todos los derechos reservados.
+      </p>
     </div>
   </div>
 </body>

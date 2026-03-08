@@ -473,9 +473,6 @@ const procesarPaymentWebhook = async (paymentId, res) => {
 /**
  * Procesar compra exitosa - CORREGIDO SIN DUPLICACIÓN + EMAIL
  */
-/**
- * Procesar compra exitosa - CORREGIDO SIN DUPLICACIÓN + EMAIL + FORMATEO DINÁMICO
- */
 const procesarCompraExitosa = async (transaccion, orderData) => {
   try {
     console.log("🎉 Procesando compra exitosa:", transaccion.referencia);
@@ -488,10 +485,10 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
 
     const { rifa_id, cantidad, datos_usuario, usuario_documento } = transaccion;
 
-    // ✅ 0. OBTENER INFORMACIÓN DE LA RIFA (INCLUYENDO cantidad_numeros)
+    // ✅ 0. OBTENER INFORMACIÓN DE LA RIFA CON PROMOCIONES
     const { data: rifa, error: rifaError } = await supabaseAdmin
       .from("rifas")
-      .select("titulo, cantidad_numeros")
+      .select("titulo, cantidad_numeros, paquetes_promocion")
       .eq("id", rifa_id)
       .single();
 
@@ -529,25 +526,36 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
       usuarioCompleto = usuario;
     }
 
-    // ✅ 2. ASIGNAR NÚMEROS ALEATORIOS CON FORMATEO DINÁMICO
+    // ✅ 2. CALCULAR NÚMEROS GRATIS 🎁
+    const numerosGratis = calcularNumerosGratis(cantidad, rifa.paquetes_promocion);
+    const cantidadTotal = cantidad + numerosGratis;
+
+    console.log(`🎯 RESUMEN DE COMPRA:`);
+    console.log(`   • Números comprados: ${cantidad}`);
+    console.log(`   • Números GRATIS: ${numerosGratis}`);
+    console.log(`   • TOTAL a entregar: ${cantidadTotal}`);
+
+    // ✅ 3. ASIGNAR NÚMEROS ALEATORIOS (COMPRADOS + GRATIS)
     const numerosAsignados = await asignarNumerosAleatorios(
       rifa_id, 
-      cantidad, 
+      cantidadTotal,  // ← CANTIDAD TOTAL (comprados + gratis)
       usuarioId, 
       numeroDocumento, 
       transaccion.referencia,
       rifa.cantidad_numeros
     );
 
-    console.log(`✅ Compra procesada exitosamente - Usuario: ${usuarioId}, Números: ${numerosAsignados.length}`);
+    console.log(`✅ Compra procesada exitosamente - Usuario: ${usuarioId}, Números entregados: ${numerosAsignados.length}`);
 
-    // ✅ 3. ENVIAR CORREO DE CONFIRMACIÓN
+    // ✅ 4. ENVIAR CORREO DE CONFIRMACIÓN CON INFO DE PROMOCIÓN
     if (usuarioCompleto) {
       try {
         const transaccionConRifa = {
           ...transaccion,
           rifaTitulo: rifa.titulo,
           cantidad: cantidad,
+          numerosGratis: numerosGratis, // ← NUEVO: para mostrar en el correo
+          cantidadTotal: cantidadTotal,  // ← NUEVO: total entregado
           total: transaccion.valor_total
         };
 
@@ -558,13 +566,15 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
       }
     }
 
-    // ✅ 4. ACTUALIZAR LA TRANSACCIÓN CON LOS NÚMEROS ASIGNADOS
+    // ✅ 5. ACTUALIZAR LA TRANSACCIÓN CON LOS NÚMEROS ASIGNADOS
     await supabaseAdmin
       .from("transacciones_pagos")
       .update({
         datos_respuesta: {
           ...transaccion.datos_respuesta,
           numeros_asignados: numerosAsignados,
+          cantidad_comprada: cantidad,
+          numeros_gratis: numerosGratis,
           cantidad_entregada: numerosAsignados.length
         }
       })
@@ -575,6 +585,7 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
     throw error;
   }
 };
+
 
 
 

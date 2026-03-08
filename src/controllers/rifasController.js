@@ -8,7 +8,15 @@ export const upload = multer({ storage });
 
 export const crearRifa = async (req, res) => {
   try {
-    const { titulo, descripcion, cantidad_numeros, precio_unitario, cantidad_minima } = req.body;
+    const { 
+      titulo, 
+      descripcion, 
+      cantidad_numeros, 
+      precio_unitario, 
+      cantidad_minima,
+      paquetes_promocion // ← NUEVO
+    } = req.body;
+    
     const archivo = req.file;
 
     console.log("📝 Datos recibidos para crear rifa:", {
@@ -17,6 +25,7 @@ export const crearRifa = async (req, res) => {
       cantidad_numeros,
       precio_unitario,
       cantidad_minima,
+      paquetes_promocion,
       archivo: archivo ? `Sí (${archivo.originalname})` : 'No'
     });
 
@@ -60,6 +69,37 @@ export const crearRifa = async (req, res) => {
       });
     }
 
+    // ✅ VALIDAR PAQUETES DE PROMOCIÓN (SI SE PROPORCIONAN)
+    let paquetesValidados = null;
+    if (paquetes_promocion) {
+      try {
+        const paquetes = typeof paquetes_promocion === 'string' 
+          ? JSON.parse(paquetes_promocion) 
+          : paquetes_promocion;
+
+        // Validar estructura
+        ['paquete1', 'paquete2', 'paquete3'].forEach((key, index) => {
+          const paquete = paquetes[key];
+          if (paquete) {
+            if (!paquete.cantidad_compra || !Number.isInteger(paquete.cantidad_compra) || paquete.cantidad_compra < 1) {
+              throw new Error(`Paquete ${index + 1}: cantidad_compra debe ser un número entero mayor a 0`);
+            }
+            if (paquete.numeros_gratis === undefined || !Number.isInteger(paquete.numeros_gratis) || paquete.numeros_gratis < 0) {
+              throw new Error(`Paquete ${index + 1}: numeros_gratis debe ser un número entero mayor o igual a 0`);
+            }
+          }
+        });
+
+        paquetesValidados = paquetes;
+        console.log("✅ Paquetes de promoción validados:", paquetesValidados);
+      } catch (error) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Error en paquetes_promocion: ${error.message}` 
+        });
+      }
+    }
+
     const extension = path.extname(archivo.originalname);
     const filename = `${uuidv4()}${extension}`;
 
@@ -90,7 +130,8 @@ export const crearRifa = async (req, res) => {
         cantidad_numeros: cantidad, 
         precio_unitario: precio,
         cantidad_minima: minCantidad,
-        imagen_url: publicUrl 
+        imagen_url: publicUrl,
+        paquetes_promocion: paquetesValidados // ← NUEVO
       }])
       .select();
 
@@ -113,19 +154,16 @@ export const crearRifa = async (req, res) => {
       
       const numerosAGenerar = Array.from({ length: end - start }, (_, index) => {
         const numeroBase = start + index;
-        // ✅ FORMATEAR CON CEROS A LA IZQUIERDA SEGÚN LA CANTIDAD
         let numeroFormateado;
         if (cantidad === 10000) {
-          // Para 10,000 números: 0000 a 9999 (4 dígitos)
           numeroFormateado = numeroBase.toString().padStart(4, '0');
         } else {
-          // Para 100,000 números: 00000 a 99999 (5 dígitos)
           numeroFormateado = numeroBase.toString().padStart(5, '0');
         }
         
         return {
           rifa_id: rifaId,
-          numero: numeroFormateado, // ← Guardar como string formateado
+          numero: numeroFormateado,
           comprado_por: null
         };
       });
@@ -236,10 +274,26 @@ export const listarRifas = async (req, res) => {
 export const editarRifa = async (req, res) => {
   try {
     const { id } = req.params;
-    const { titulo, descripcion, cantidad_numeros, precio_unitario, cantidad_minima } = req.body;
+    const { 
+      titulo, 
+      descripcion, 
+      cantidad_numeros, 
+      precio_unitario, 
+      cantidad_minima,
+      paquetes_promocion // ← NUEVO
+    } = req.body;
+    
     const archivo = req.file;
 
-    console.log("✏️ Editando rifa:", { id, titulo, descripcion, cantidad_numeros, precio_unitario, cantidad_minima });
+    console.log("✏️ Editando rifa:", { 
+      id, 
+      titulo, 
+      descripcion, 
+      cantidad_numeros, 
+      precio_unitario, 
+      cantidad_minima,
+      paquetes_promocion
+    });
 
     if (!titulo || !descripcion || !cantidad_numeros || !precio_unitario || !cantidad_minima) {
       return res.status(400).json({ 
@@ -275,6 +329,42 @@ export const editarRifa = async (req, res) => {
       });
     }
 
+    // ✅ VALIDAR PAQUETES DE PROMOCIÓN (SI SE PROPORCIONAN)
+    let paquetesValidados = null;
+    if (paquetes_promocion !== undefined) {
+      if (paquetes_promocion === null || paquetes_promocion === '') {
+        // Permitir eliminar paquetes enviando null o string vacío
+        paquetesValidados = null;
+      } else {
+        try {
+          const paquetes = typeof paquetes_promocion === 'string' 
+            ? JSON.parse(paquetes_promocion) 
+            : paquetes_promocion;
+
+          // Validar estructura
+          ['paquete1', 'paquete2', 'paquete3'].forEach((key, index) => {
+            const paquete = paquetes[key];
+            if (paquete) {
+              if (!paquete.cantidad_compra || !Number.isInteger(paquete.cantidad_compra) || paquete.cantidad_compra < 1) {
+                throw new Error(`Paquete ${index + 1}: cantidad_compra debe ser un número entero mayor a 0`);
+              }
+              if (paquete.numeros_gratis === undefined || !Number.isInteger(paquete.numeros_gratis) || paquete.numeros_gratis < 0) {
+                throw new Error(`Paquete ${index + 1}: numeros_gratis debe ser un número entero mayor o igual a 0`);
+              }
+            }
+          });
+
+          paquetesValidados = paquetes;
+          console.log("✅ Paquetes de promoción validados:", paquetesValidados);
+        } catch (error) {
+          return res.status(400).json({ 
+            success: false, 
+            message: `Error en paquetes_promocion: ${error.message}` 
+          });
+        }
+      }
+    }
+
     let publicUrl;
     if (archivo) {
       console.log("📤 Nueva imagen proporcionada, subiendo...");
@@ -302,7 +392,8 @@ export const editarRifa = async (req, res) => {
       cantidad_numeros: cantidad,
       precio_unitario: precio,
       cantidad_minima: minCantidad,
-      ...(publicUrl && { imagen_url: publicUrl })
+      ...(publicUrl && { imagen_url: publicUrl }),
+      ...(paquetes_promocion !== undefined && { paquetes_promocion: paquetesValidados }) // ← NUEVO
     };
 
     console.log("💾 Actualizando rifa en la base de datos...");
