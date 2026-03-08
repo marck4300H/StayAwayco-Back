@@ -293,7 +293,7 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
 
     // ✅ Enviar correo con Resend
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <noreply@stayawayrifas.com>',
+      from: 'StayAway Rifas <noreply@stayaway.com.co>', // ← CORREGIR AQUÍ
       to: [usuario.correo_electronico],
       subject: `✅ Compra Exitosa - ${transaccion.rifaTitulo}${transaccion.numerosGratis > 0 ? ' 🎁 ¡Con números gratis!' : ''}`,
       html: htmlContent,
