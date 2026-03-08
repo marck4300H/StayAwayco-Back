@@ -471,6 +471,55 @@ const procesarPaymentWebhook = async (paymentId, res) => {
 };
 
 /**
+ * 🎁 Calcular números gratis según promociones configuradas
+ */
+const calcularNumerosGratis = (cantidadComprada, paquetesPromo) => {
+  if (!paquetesPromo) {
+    console.log("📊 Sin paquetes de promoción configurados");
+    return 0;
+  }
+
+  console.log("🎁 Evaluando promociones:", paquetesPromo);
+
+  // Crear array de paquetes válidos y ordenar de MAYOR a MENOR cantidad
+  const paquetes = [];
+  
+  ['paquete1', 'paquete2', 'paquete3'].forEach((key) => {
+    const paquete = paquetesPromo[key];
+    if (paquete && paquete.cantidad_compra && paquete.numeros_gratis >= 0) {
+      paquetes.push({
+        nombre: key,
+        cantidad: paquete.cantidad_compra,
+        gratis: paquete.numeros_gratis
+      });
+    }
+  });
+
+  if (paquetes.length === 0) {
+    console.log("📊 No hay paquetes válidos configurados");
+    return 0;
+  }
+
+  // Ordenar de MAYOR a MENOR para aplicar el mejor descuento primero
+  paquetes.sort((a, b) => b.cantidad - a.cantidad);
+
+  console.log("📦 Paquetes disponibles (ordenados):", paquetes);
+
+  // Buscar el paquete aplicable (el MAYOR que cumpla la condición)
+  for (const paquete of paquetes) {
+    if (cantidadComprada >= paquete.cantidad) {
+      console.log(`🎉 ¡PROMOCIÓN APLICADA! ${paquete.nombre}: ${cantidadComprada} números → +${paquete.gratis} GRATIS`);
+      return paquete.gratis;
+    }
+  }
+
+  console.log(`📊 Sin promoción aplicable para ${cantidadComprada} números`);
+  console.log(`   Cantidad mínima requerida: ${paquetes[paquetes.length - 1].cantidad}`);
+  return 0;
+};
+
+
+/**
  * Procesar compra exitosa - CORREGIDO SIN DUPLICACIÓN + EMAIL
  */
 const procesarCompraExitosa = async (transaccion, orderData) => {
