@@ -47,6 +47,221 @@ const inicializarResend = async () => {
 
 // Inicializar Resend
 inicializarResend();
+/**
+ * 📄 Generar PDF profesional con los números del usuario
+ * Incluye: datos del usuario, números organizados con colores corporativos
+ */
+const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
+  return new Promise((resolve, reject) => {
+    try {
+      // Crear documento PDF con márgenes
+      const doc = new PDFDocument({
+        size: 'A4',
+        margins: { top: 50, bottom: 50, left: 50, right: 50 }
+      });
+
+      // Buffer para almacenar el PDF en memoria
+      const chunks = [];
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      // COLORES CORPORATIVOS (sacados de tus templates HTML)
+      const colorDorado = '#c8a951';
+      const colorDoradoClaro = '#dfc77a';
+      const colorTextoOscuro = '#333333';
+      const colorTextoGris = '#666666';
+      const colorFondo = '#f8f9fa';
+
+      // ═══════════════════════════════════════
+      // ENCABEZADO CON DEGRADADO SIMULADO
+      // ═══════════════════════════════════════
+      
+      // Rectángulo de fondo dorado
+      doc.rect(0, 0, 595, 150)
+         .fill(colorDorado);
+
+      // Logo/Título principal
+      doc.fontSize(32)
+         .fillColor('#ffffff')
+         .font('Helvetica-Bold')
+         .text('StayAway Rifas', 50, 40, { align: 'center' });
+
+      // Subtítulo de la rifa
+      doc.fontSize(18)
+         .fillColor('#ffffff')
+         .font('Helvetica')
+         .text(rifa.titulo, 50, 85, { align: 'center', width: 495 });
+
+      // Fecha de generación
+      doc.fontSize(10)
+         .fillColor('#ffffff')
+         .text(`Generado el ${new Date().toLocaleDateString('es-CO', { 
+           year: 'numeric', 
+           month: 'long', 
+           day: 'numeric',
+           hour: '2-digit',
+           minute: '2-digit'
+         })}`, 50, 120, { align: 'center' });
+
+      // ═══════════════════════════════════════
+      // SECCIÓN: DATOS DEL USUARIO
+      // ═══════════════════════════════════════
+      
+      let currentY = 180;
+
+      // Título de sección
+      doc.fontSize(16)
+         .fillColor(colorDorado)
+         .font('Helvetica-Bold')
+         .text('Información del Participante', 50, currentY);
+
+      currentY += 30;
+
+      // Caja de información del usuario
+      doc.rect(50, currentY, 495, 120)
+         .fillAndStroke(colorFondo, colorDorado)
+         .lineWidth(2);
+
+      currentY += 20;
+
+      // Datos del usuario
+      const datosUsuario = [
+        { label: 'Nombre Completo:', valor: `${usuario.nombres} ${usuario.apellidos}` },
+        { label: 'Documento:', valor: `${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}` },
+        { label: 'Correo Electrónico:', valor: usuario.correo_electronico },
+        { label: 'Teléfono:', valor: usuario.telefono || 'No registrado' }
+      ];
+
+      datosUsuario.forEach((dato, index) => {
+        const yPos = currentY + (index * 20);
+        
+        // Etiqueta
+        doc.fontSize(11)
+           .fillColor(colorTextoGris)
+           .font('Helvetica-Bold')
+           .text(dato.label, 70, yPos);
+
+        // Valor
+        doc.fontSize(11)
+           .fillColor(colorTextoOscuro)
+           .font('Helvetica')
+           .text(dato.valor, 220, yPos);
+      });
+
+      currentY += 110;
+
+      // ═══════════════════════════════════════
+      // SECCIÓN: TUS NÚMEROS
+      // ═══════════════════════════════════════
+
+      currentY += 10;
+
+      // Título de números
+      doc.fontSize(16)
+         .fillColor(colorDorado)
+         .font('Helvetica-Bold')
+         .text('Tus Números de la Suerte', 50, currentY, { align: 'center', width: 495 });
+
+      currentY += 30;
+
+      // Contador de números
+      doc.fontSize(12)
+         .fillColor(colorTextoGris)
+         .font('Helvetica')
+         .text(`Total de números: ${numerosUsuario.length}`, 50, currentY, { align: 'center', width: 495 });
+
+      currentY += 30;
+
+      // ═══════════════════════════════════════
+      // GRID DE NÚMEROS (8 por fila)
+      // ═══════════════════════════════════════
+
+      const numerosPerRow = 8;
+      const boxWidth = 56;
+      const boxHeight = 45;
+      const horizontalSpacing = 6;
+      const verticalSpacing = 10;
+      const startX = 50;
+      let x = startX;
+      let y = currentY;
+
+      numerosUsuario.forEach((numero, index) => {
+        // Nueva fila cada 8 números
+        if (index > 0 && index % numerosPerRow === 0) {
+          x = startX;
+          y += boxHeight + verticalSpacing;
+          
+          // Nueva página si no hay espacio (750 es límite antes del footer)
+          if (y > 700) {
+            doc.addPage();
+            y = 50;
+            
+            // Repetir título en nueva página
+            doc.fontSize(14)
+               .fillColor(colorDorado)
+               .font('Helvetica-Bold')
+               .text('Tus Números (continuación)', 50, y, { align: 'center', width: 495 });
+            
+            y += 40;
+          }
+        }
+
+        // Dibujar caja del número con borde dorado
+        doc.rect(x, y, boxWidth, boxHeight)
+           .fillAndStroke('#ffffff', colorDorado)
+           .lineWidth(2);
+
+        // Dibujar número centrado
+        doc.fontSize(16)
+           .fillColor(colorDorado)
+           .font('Helvetica-Bold')
+           .text(`#${numero}`, x, y + 14, {
+             width: boxWidth,
+             align: 'center'
+           });
+
+        x += boxWidth + horizontalSpacing;
+      });
+
+      // ═══════════════════════════════════════
+      // FOOTER
+      // ═══════════════════════════════════════
+
+      // Ir al final de la página actual
+      doc.y = 750;
+
+      // Línea separadora
+      doc.strokeColor(colorDorado)
+         .lineWidth(2)
+         .moveTo(50, 750)
+         .lineTo(545, 750)
+         .stroke();
+
+      // Texto del footer
+      doc.fontSize(10)
+         .fillColor(colorTextoGris)
+         .font('Helvetica')
+         .text('StayAway Rifas - Todos los derechos reservados © 2026', 50, 760, {
+           align: 'center',
+           width: 495
+         });
+
+      doc.fontSize(9)
+         .fillColor(colorTextoGris)
+         .text('Guarda este documento como comprobante de tu participación', 50, 775, {
+           align: 'center',
+           width: 495
+         });
+
+      // Finalizar PDF
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
 
 /**
  * 📧 Enviar correo de compra con PDF adjunto
