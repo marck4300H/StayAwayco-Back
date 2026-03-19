@@ -14,7 +14,8 @@ export const crearRifa = async (req, res) => {
       cantidad_numeros, 
       precio_unitario, 
       cantidad_minima,
-      paquetes_promocion // ← NUEVO
+      paquetes_promocion,
+      fecha_sorteo // ← NUEVO
     } = req.body;
     
     const archivo = req.file;
@@ -26,6 +27,7 @@ export const crearRifa = async (req, res) => {
       precio_unitario,
       cantidad_minima,
       paquetes_promocion,
+      fecha_sorteo,
       archivo: archivo ? `Sí (${archivo.originalname})` : 'No'
     });
 
@@ -69,6 +71,26 @@ export const crearRifa = async (req, res) => {
       });
     }
 
+    // ✅ VALIDAR FECHA DE SORTEO (OPCIONAL)
+    let fechaSorteoValidada = null;
+    if (fecha_sorteo) {
+      const fecha = new Date(fecha_sorteo);
+      if (isNaN(fecha.getTime())) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "La fecha de sorteo no es válida. Usa formato ISO 8601 (ej: 2026-04-15T20:00:00Z)." 
+        });
+      }
+      if (fecha <= new Date()) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "La fecha de sorteo debe ser una fecha futura." 
+        });
+      }
+      fechaSorteoValidada = fecha.toISOString();
+      console.log("📅 Fecha de sorteo validada:", fechaSorteoValidada);
+    }
+
     // ✅ VALIDAR PAQUETES DE PROMOCIÓN (SI SE PROPORCIONAN)
     let paquetesValidados = null;
     if (paquetes_promocion) {
@@ -77,7 +99,6 @@ export const crearRifa = async (req, res) => {
           ? JSON.parse(paquetes_promocion) 
           : paquetes_promocion;
 
-        // Validar estructura
         ['paquete1', 'paquete2', 'paquete3'].forEach((key, index) => {
           const paquete = paquetes[key];
           if (paquete) {
@@ -131,7 +152,8 @@ export const crearRifa = async (req, res) => {
         precio_unitario: precio,
         cantidad_minima: minCantidad,
         imagen_url: publicUrl,
-        paquetes_promocion: paquetesValidados // ← NUEVO
+        paquetes_promocion: paquetesValidados,
+        fecha_sorteo: fechaSorteoValidada // ← NUEVO
       }])
       .select();
 
@@ -143,7 +165,7 @@ export const crearRifa = async (req, res) => {
     const rifaId = rifaData[0].id;
     console.log(`🎯 Rifa creada con ID: ${rifaId}. Generando ${cantidad} números...`);
 
-    // ✅ GENERAR NÚMEROS FORMATEADOS CORRECTAMENTE
+    // ✅ GENERAR NÚMEROS
     const totalNumeros = cantidad;
     const batchSize = 10000;
     const batches = Math.ceil(totalNumeros / batchSize);
@@ -154,12 +176,9 @@ export const crearRifa = async (req, res) => {
       
       const numerosAGenerar = Array.from({ length: end - start }, (_, index) => {
         const numeroBase = start + index;
-        let numeroFormateado;
-        if (cantidad === 10000) {
-          numeroFormateado = numeroBase.toString().padStart(4, '0');
-        } else {
-          numeroFormateado = numeroBase.toString().padStart(5, '0');
-        }
+        const numeroFormateado = cantidad === 10000
+          ? numeroBase.toString().padStart(4, '0')
+          : numeroBase.toString().padStart(5, '0');
         
         return {
           rifa_id: rifaId,
@@ -229,7 +248,7 @@ export const listarRifas = async (req, res) => {
           const vendidos = rifa.cantidad_numeros - disponiblesCount;
           const porcentaje = rifa.cantidad_numeros === 0 ? 0 : (vendidos / rifa.cantidad_numeros) * 100;
           
-          // ✅ INCLUIR DATOS DEL GANADOR SI LA RIFA ESTÁ SORTEADA
+          // ✅ CONSTRUIR RESPUESTA BASE
           const rifaConDatos = { 
             ...rifa, 
             disponibles: disponiblesCount, 
@@ -237,7 +256,21 @@ export const listarRifas = async (req, res) => {
             porcentaje: Number(porcentaje.toFixed(2))
           };
 
-          // Si la rifa está sorteada, incluir info del ganador
+          // ✅ INCLUIR paquetes_promocion SOLO SI EXISTEN
+          if (rifa.paquetes_promocion && Object.keys(rifa.paquetes_promocion).length > 0) {
+            rifaConDatos.paquetes_promocion = rifa.paquetes_promocion;
+          } else {
+            delete rifaConDatos.paquetes_promocion;
+          }
+
+          // ✅ INCLUIR fecha_sorteo SOLO SI EXISTE
+          if (rifa.fecha_sorteo) {
+            rifaConDatos.fecha_sorteo = rifa.fecha_sorteo;
+          } else {
+            delete rifaConDatos.fecha_sorteo;
+          }
+
+          // ✅ INCLUIR DATOS DEL GANADOR SI LA RIFA ESTÁ SORTEADA
           if (rifa.estado === 'sorteada' && rifa.datos_ganador) {
             rifaConDatos.ganador = {
               nombre_completo: rifa.datos_ganador.nombre_completo,
@@ -280,19 +313,16 @@ export const editarRifa = async (req, res) => {
       cantidad_numeros, 
       precio_unitario, 
       cantidad_minima,
-      paquetes_promocion // ← NUEVO
+      paquetes_promocion,
+      fecha_sorteo // ← NUEVO
     } = req.body;
     
     const archivo = req.file;
 
     console.log("✏️ Editando rifa:", { 
-      id, 
-      titulo, 
-      descripcion, 
-      cantidad_numeros, 
-      precio_unitario, 
-      cantidad_minima,
-      paquetes_promocion
+      id, titulo, descripcion, 
+      cantidad_numeros, precio_unitario, 
+      cantidad_minima, paquetes_promocion, fecha_sorteo
     });
 
     if (!titulo || !descripcion || !cantidad_numeros || !precio_unitario || !cantidad_minima) {
@@ -329,11 +359,35 @@ export const editarRifa = async (req, res) => {
       });
     }
 
+    // ✅ VALIDAR FECHA DE SORTEO (OPCIONAL)
+    let fechaSorteoValidada = undefined; // undefined = no tocar el campo en BD
+    if (fecha_sorteo !== undefined) {
+      if (fecha_sorteo === null || fecha_sorteo === '') {
+        // Permitir borrar la fecha enviando null o string vacío
+        fechaSorteoValidada = null;
+      } else {
+        const fecha = new Date(fecha_sorteo);
+        if (isNaN(fecha.getTime())) {
+          return res.status(400).json({ 
+            success: false, 
+            message: "La fecha de sorteo no es válida. Usa formato ISO 8601 (ej: 2026-04-15T20:00:00Z)." 
+          });
+        }
+        if (fecha <= new Date()) {
+          return res.status(400).json({ 
+            success: false, 
+            message: "La fecha de sorteo debe ser una fecha futura." 
+          });
+        }
+        fechaSorteoValidada = fecha.toISOString();
+        console.log("📅 Fecha de sorteo validada:", fechaSorteoValidada);
+      }
+    }
+
     // ✅ VALIDAR PAQUETES DE PROMOCIÓN (SI SE PROPORCIONAN)
     let paquetesValidados = null;
     if (paquetes_promocion !== undefined) {
       if (paquetes_promocion === null || paquetes_promocion === '') {
-        // Permitir eliminar paquetes enviando null o string vacío
         paquetesValidados = null;
       } else {
         try {
@@ -341,7 +395,6 @@ export const editarRifa = async (req, res) => {
             ? JSON.parse(paquetes_promocion) 
             : paquetes_promocion;
 
-          // Validar estructura
           ['paquete1', 'paquete2', 'paquete3'].forEach((key, index) => {
             const paquete = paquetes[key];
             if (paquete) {
@@ -393,7 +446,8 @@ export const editarRifa = async (req, res) => {
       precio_unitario: precio,
       cantidad_minima: minCantidad,
       ...(publicUrl && { imagen_url: publicUrl }),
-      ...(paquetes_promocion !== undefined && { paquetes_promocion: paquetesValidados }) // ← NUEVO
+      ...(paquetes_promocion !== undefined && { paquetes_promocion: paquetesValidados }),
+      ...(fechaSorteoValidada !== undefined && { fecha_sorteo: fechaSorteoValidada }) // ← NUEVO
     };
 
     console.log("💾 Actualizando rifa en la base de datos...");
@@ -550,6 +604,13 @@ export const getRifaById = async (req, res) => {
       vendidos, 
       porcentaje: Number(porcentaje.toFixed(2))
     };
+
+    // ✅ INCLUIR paquetes_promocion SOLO SI EXISTEN
+    if (rifa.paquetes_promocion && Object.keys(rifa.paquetes_promocion).length > 0) {
+      respuesta.paquetes_promocion = rifa.paquetes_promocion;
+    } else {
+      delete respuesta.paquetes_promocion;
+    }
 
     // ✅ INCLUIR INFO DEL GANADOR SI ESTÁ SORTEADA
     if (rifa.estado === 'sorteada' && rifa.datos_ganador) {
