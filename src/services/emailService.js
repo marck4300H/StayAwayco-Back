@@ -578,27 +578,39 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
     .section-title {
       font-size: 18px;
       color: #0A369D;
-      margin-bottom: 18px;
+      margin-bottom: 10px;
       text-align: center;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 1px;
     }
+    .numbers-subtitle {
+      text-align: center;
+      color: #5a6370;
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
     .numbers-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
-      gap: 10px;
-      margin-top: 18px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      margin-top: 6px;
     }
     .number-box {
       background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
       color: white;
-      padding: 14px;
+      padding: 16px 10px;
       border-radius: 10px;
       text-align: center;
       font-weight: 700;
-      font-size: 17px;
+      font-size: 16px;
       box-shadow: 0 4px 12px rgba(10, 54, 157, 0.25);
+    }
+    .more-numbers-note {
+      text-align: center;
+      color: #5a6370;
+      font-size: 13px;
+      margin-top: 12px;
     }
     .attachment-note {
       background: #f0f4ff;
@@ -631,8 +643,8 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
     }
     @media only screen and (max-width: 600px) {
       .header h1 { font-size: 22px; }
-      .numbers-grid { grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 8px; }
-      .number-box { padding: 11px; font-size: 15px; }
+      .numbers-grid { grid-template-columns: repeat(5, 1fr); gap: 10px; }
+      .number-box { padding: 12px 6px; font-size: 13px; }
     }
   </style>
 </head>
@@ -704,20 +716,31 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
 
       <div class="attachment-note">
         <strong>📎 Archivo adjunto:</strong>
-        Encuentra el PDF con todos tus números en el archivo adjunto de este correo.
+        Encuentra el PDF con <strong>todos</strong> tus números en el archivo adjunto de este correo.
       </div>
 
       <div class="numbers-section">
         <h3 class="section-title">🎯 Tus Números</h3>
+        <p class="numbers-subtitle">
+          ${tienePaqueteGratis
+            ? `Total: <strong>${transaccion.cantidadTotal}</strong> números (${transaccion.cantidad} comprados + ${transaccion.numerosGratis} gratis)`
+            : `Total: <strong>${numerosAsignados.length}</strong> números`
+          }
+        </p>
         <div class="numbers-grid">
-          ${numerosAsignados.map(n => `<div class="number-box">#${n}</div>`).join('')}
+          ${numerosAsignados.slice(0, 10).map(n => `<div class="number-box">#${n}</div>`).join('')}
         </div>
+        ${numerosAsignados.length > 10 ? `
+        <p class="more-numbers-note">
+          📎 Y ${numerosAsignados.length - 10} números más — ver todos en el PDF adjunto
+        </p>` : ''}
       </div>
     </div>
 
     <div class="footer">
-      <p>StayAway Rifas — Todos los derechos reservados © 2026</p>
-      <p>Guarda este correo como comprobante de tu participación</p>
+      <p style="font-weight:800; font-size:15px; opacity:1;">StayAway Rifas</p>
+      <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
+      <p>Contacto: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
       <div class="social-links">
         <a href="#">Instagram</a>
         <a href="#">WhatsApp</a>
@@ -1480,9 +1503,7 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
       font-size: 16px;
       opacity: 0.92;
     }
-    .content {
-      padding: 40px 30px;
-    }
+    .content { padding: 40px 30px; }
     .greeting {
       color: #0A369D;
       font-size: 22px;
@@ -1552,9 +1573,7 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
       font-weight: 700;
       font-size: 14px;
     }
-    .numbers-section {
-      margin: 28px 0;
-    }
+    .numbers-section { margin: 28px 0; }
     .numbers-section h3 {
       color: #0A369D;
       font-size: 16px;
@@ -1566,14 +1585,14 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
     }
     .numbers-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
       margin: 16px 0;
     }
     .number {
       background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
       border-radius: 10px;
-      padding: 12px;
+      padding: 14px 8px;
       text-align: center;
       font-weight: 700;
       font-size: 14px;
@@ -1635,12 +1654,8 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
       text-decoration: none;
       font-weight: 600;
     }
-    .footer .social-links {
-      margin-top: 16px;
-    }
-    .footer .social-links a {
-      margin: 0 10px;
-    }
+    .footer .social-links { margin-top: 16px; }
+    .footer .social-links a { margin: 0 10px; }
   </style>
 </head>
 <body>
@@ -1685,10 +1700,10 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
       <div class="numbers-section">
         <h3>🎯 Tus Números Participantes</h3>
         <div class="numbers-grid">
-          ${numerosUsuario.slice(0, 20).map(numero => `<div class="number">#${numero}</div>`).join('')}
+          ${numerosUsuario.slice(0, 10).map(numero => `<div class="number">#${numero}</div>`).join('')}
         </div>
-        ${numerosUsuario.length > 20
-          ? `<p class="more-numbers">Y ${numerosUsuario.length - 20} números más...</p>`
+        ${numerosUsuario.length > 10
+          ? `<p class="more-numbers">📎 Y ${numerosUsuario.length - 10} números más — ver todos en el PDF adjunto</p>`
           : ''}
       </div>
 
@@ -1827,9 +1842,7 @@ const generarTemplateSorteoDesierto = (
       font-size: 16px;
       opacity: 0.92;
     }
-    .content {
-      padding: 40px 30px;
-    }
+    .content { padding: 40px 30px; }
     .greeting {
       color: #0A369D;
       font-size: 22px;
@@ -1933,9 +1946,7 @@ const generarTemplateSorteoDesierto = (
       font-weight: 700;
       font-size: 14px;
     }
-    .numbers-section {
-      margin: 28px 0;
-    }
+    .numbers-section { margin: 28px 0; }
     .numbers-section h3 {
       color: #0A369D;
       font-size: 16px;
@@ -1947,14 +1958,14 @@ const generarTemplateSorteoDesierto = (
     }
     .numbers-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
       margin: 16px 0;
     }
     .number {
       background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
       border-radius: 10px;
-      padding: 12px;
+      padding: 14px 8px;
       text-align: center;
       font-weight: 700;
       font-size: 14px;
@@ -2008,12 +2019,8 @@ const generarTemplateSorteoDesierto = (
       text-decoration: none;
       font-weight: 600;
     }
-    .footer .social-links {
-      margin-top: 16px;
-    }
-    .footer .social-links a {
-      margin: 0 10px;
-    }
+    .footer .social-links { margin-top: 16px; }
+    .footer .social-links a { margin: 0 10px; }
   </style>
 </head>
 <body>
@@ -2037,7 +2044,7 @@ const generarTemplateSorteoDesierto = (
       </div>
 
       <div class="new-date-box">
-        <h3>Sorteo Reprogramado</h3>
+        <h3>📅 Sorteo Reprogramado</h3>
         <p>La nueva fecha para el sorteo es:</p>
         <div class="new-date">${fechaFormateada}</div>
       </div>
@@ -2063,10 +2070,10 @@ const generarTemplateSorteoDesierto = (
       <div class="numbers-section">
         <h3>🎯 Tus Números Siguen Participando</h3>
         <div class="numbers-grid">
-          ${numerosUsuario.slice(0, 20).map(numero => `<div class="number">#${numero}</div>`).join('')}
+          ${numerosUsuario.slice(0, 10).map(numero => `<div class="number">#${numero}</div>`).join('')}
         </div>
-        ${numerosUsuario.length > 20
-          ? `<p class="more-numbers">Y ${numerosUsuario.length - 20} números más...</p>`
+        ${numerosUsuario.length > 10
+          ? `<p class="more-numbers">📎 Y ${numerosUsuario.length - 10} números más — ver todos en el PDF adjunto</p>`
           : ''}
       </div>
 
