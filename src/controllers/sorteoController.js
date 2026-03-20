@@ -187,7 +187,8 @@ export const sortearRifa = async (req, res) => {
           nombres,
           apellidos,
           correo_electronico,
-          numero_documento
+          numero_documento,
+          telefono
         )
       `)
       .eq("rifa_id", rifa_id)
@@ -459,7 +460,8 @@ export const notificarSorteoDesierto = async (req, res) => {
           id,
           nombres,
           apellidos,
-          correo_electronico
+          correo_electronico,
+          telefono
         )
       `)
       .eq("rifa_id", rifa_id)

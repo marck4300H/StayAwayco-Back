@@ -54,169 +54,203 @@ inicializarResend();
 const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
   return new Promise((resolve, reject) => {
     try {
-      // Crear documento PDF con márgenes
       const doc = new PDFDocument({
         size: 'A4',
         margins: { top: 50, bottom: 50, left: 50, right: 50 }
       });
 
-      // Buffer para almacenar el PDF en memoria
       const chunks = [];
       doc.on('data', chunk => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // COLORES CORPORATIVOS (sacados de tus templates HTML)
-      const colorDorado = '#c8a951';
-      const colorDoradoClaro = '#dfc77a';
-      const colorTextoOscuro = '#333333';
-      const colorTextoGris = '#666666';
-      const colorFondo = '#f8f9fa';
+      // COLORES CORPORATIVOS
+      const colorAzulOscuro  = '#0A369D';
+      const colorAzulMedio   = '#4472CA';
+      const colorAzulClaro   = '#92B4F4';
+      const colorFondoSuave  = '#f0f4ff';
+      const colorBorde       = '#CFDEE7';
+      const colorFondoGris   = '#f5f7fb';
+      const colorTextoOscuro = '#2d2d2d';
+      const colorTextoGris   = '#5a6370';
 
       // ═══════════════════════════════════════
-      // ENCABEZADO CON DEGRADADO SIMULADO
+      // ENCABEZADO
       // ═══════════════════════════════════════
-      
-      // Rectángulo de fondo dorado
+
+      // Fondo principal del header
       doc.rect(0, 0, 595, 150)
-         .fill(colorDorado);
+         .fill(colorAzulOscuro);
 
-      // Logo/Título principal
+      // Franja inferior del header (acento más claro)
+      doc.rect(0, 120, 595, 30)
+         .fill(colorAzulMedio);
+
+      // Título principal
       doc.fontSize(32)
          .fillColor('#ffffff')
          .font('Helvetica-Bold')
-         .text('StayAway Rifas', 50, 40, { align: 'center' });
+         .text('StayAway Rifas', 50, 38, { align: 'center' });
 
-      // Subtítulo de la rifa
-      doc.fontSize(18)
+      // Subtítulo con título de la rifa
+      doc.fontSize(17)
          .fillColor('#ffffff')
          .font('Helvetica')
-         .text(rifa.titulo, 50, 85, { align: 'center', width: 495 });
+         .opacity(0.92)
+         .text(rifa.titulo, 50, 82, { align: 'center', width: 495 });
 
-      // Fecha de generación
+      // Fecha de generación en la franja inferior
       doc.fontSize(10)
          .fillColor('#ffffff')
-         .text(`Generado el ${new Date().toLocaleDateString('es-CO', { 
-           year: 'numeric', 
-           month: 'long', 
+         .font('Helvetica')
+         .opacity(0.85)
+         .text(`Generado el ${new Date().toLocaleDateString('es-CO', {
+           year: 'numeric',
+           month: 'long',
            day: 'numeric',
            hour: '2-digit',
            minute: '2-digit'
-         })}`, 50, 120, { align: 'center' });
+         })}`, 50, 128, { align: 'center' });
+
+      // Resetear opacidad
+      doc.opacity(1);
 
       // ═══════════════════════════════════════
       // SECCIÓN: DATOS DEL USUARIO
       // ═══════════════════════════════════════
-      
+
       let currentY = 180;
 
       // Título de sección
-      doc.fontSize(16)
-         .fillColor(colorDorado)
+      doc.fontSize(14)
+         .fillColor(colorAzulOscuro)
          .font('Helvetica-Bold')
          .text('Información del Participante', 50, currentY);
 
-      currentY += 30;
+      // Línea decorativa bajo el título
+      doc.rect(50, currentY + 22, 495, 3)
+         .fill(colorAzulMedio);
+
+      currentY += 38;
 
       // Caja de información del usuario
       doc.rect(50, currentY, 495, 120)
-         .fillAndStroke(colorFondo, colorDorado)
-         .lineWidth(2);
+         .fillAndStroke(colorFondoGris, colorBorde)
+         .lineWidth(1.5);
+
+      // Borde izquierdo destacado (acento azul)
+      doc.rect(50, currentY, 5, 120)
+         .fill(colorAzulOscuro);
 
       currentY += 20;
 
-      // Datos del usuario
       const datosUsuario = [
         { label: 'Nombre Completo:', valor: `${usuario.nombres} ${usuario.apellidos}` },
-        { label: 'Documento:', valor: `${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}` },
-        { label: 'Correo Electrónico:', valor: usuario.correo_electronico },
-        { label: 'Teléfono:', valor: usuario.telefono || 'No registrado' }
+        { label: 'Documento:',       valor: `${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}` },
+        { label: 'Correo:',          valor: usuario.correo_electronico },
+        { label: 'Teléfono:',        valor: usuario.telefono || 'No registrado' }
       ];
 
       datosUsuario.forEach((dato, index) => {
-        const yPos = currentY + (index * 20);
-        
-        // Etiqueta
-        doc.fontSize(11)
+        const yPos = currentY + (index * 21);
+
+        doc.fontSize(10)
            .fillColor(colorTextoGris)
            .font('Helvetica-Bold')
            .text(dato.label, 70, yPos);
 
-        // Valor
-        doc.fontSize(11)
+        doc.fontSize(10)
            .fillColor(colorTextoOscuro)
            .font('Helvetica')
            .text(dato.valor, 220, yPos);
       });
 
-      currentY += 110;
+      currentY += 115;
 
       // ═══════════════════════════════════════
       // SECCIÓN: TUS NÚMEROS
       // ═══════════════════════════════════════
 
-      currentY += 10;
+      currentY += 12;
 
-      // Título de números
-      doc.fontSize(16)
-         .fillColor(colorDorado)
+      // Título de sección
+      doc.fontSize(14)
+         .fillColor(colorAzulOscuro)
          .font('Helvetica-Bold')
-         .text('Tus Números de la Suerte', 50, currentY, { align: 'center', width: 495 });
+         .text('Tus Números de la Suerte', 50, currentY);
 
-      currentY += 30;
+      // Línea decorativa bajo el título
+      doc.rect(50, currentY + 22, 495, 3)
+         .fill(colorAzulMedio);
 
-      // Contador de números
-      doc.fontSize(12)
-         .fillColor(colorTextoGris)
-         .font('Helvetica')
-         .text(`Total de números: ${numerosUsuario.length}`, 50, currentY, { align: 'center', width: 495 });
+      currentY += 38;
 
-      currentY += 30;
+      // Badge con contador de números
+      doc.rect(50, currentY, 495, 30)
+         .fill(colorFondoSuave);
+
+      doc.fontSize(11)
+         .fillColor(colorAzulOscuro)
+         .font('Helvetica-Bold')
+         .text(`Total de números adquiridos: ${numerosUsuario.length}`, 50, currentY + 9, {
+           align: 'center',
+           width: 495
+         });
+
+      currentY += 46;
 
       // ═══════════════════════════════════════
       // GRID DE NÚMEROS (8 por fila)
       // ═══════════════════════════════════════
 
-      const numerosPerRow = 8;
-      const boxWidth = 56;
-      const boxHeight = 45;
+      const numerosPerRow   = 8;
+      const boxWidth        = 56;
+      const boxHeight       = 45;
       const horizontalSpacing = 6;
-      const verticalSpacing = 10;
+      const verticalSpacing   = 10;
       const startX = 50;
       let x = startX;
       let y = currentY;
 
       numerosUsuario.forEach((numero, index) => {
-        // Nueva fila cada 8 números
         if (index > 0 && index % numerosPerRow === 0) {
           x = startX;
           y += boxHeight + verticalSpacing;
-          
-          // Nueva página si no hay espacio (750 es límite antes del footer)
+
           if (y > 700) {
             doc.addPage();
             y = 50;
-            
-            // Repetir título en nueva página
-            doc.fontSize(14)
-               .fillColor(colorDorado)
+
+            // Header compacto en páginas adicionales
+            doc.rect(0, 0, 595, 45)
+               .fill(colorAzulOscuro);
+
+            doc.fontSize(13)
+               .fillColor('#ffffff')
                .font('Helvetica-Bold')
-               .text('Tus Números (continuación)', 50, y, { align: 'center', width: 495 });
-            
-            y += 40;
+               .text('StayAway Rifas — Tus Números (continuación)', 50, 14, {
+                 align: 'center',
+                 width: 495
+               });
+
+            y = 65;
           }
         }
 
-        // Dibujar caja del número con borde dorado
+        // Caja del número: fondo suave + borde azul
         doc.rect(x, y, boxWidth, boxHeight)
-           .fillAndStroke('#ffffff', colorDorado)
-           .lineWidth(2);
+           .fillAndStroke(colorFondoSuave, colorAzulMedio)
+           .lineWidth(1.5);
 
-        // Dibujar número centrado
-        doc.fontSize(16)
-           .fillColor(colorDorado)
+        // Franja superior de color en cada caja
+        doc.rect(x, y, boxWidth, 6)
+           .fill(colorAzulOscuro);
+
+        // Número centrado
+        doc.fontSize(15)
+           .fillColor(colorAzulOscuro)
            .font('Helvetica-Bold')
-           .text(`#${numero}`, x, y + 14, {
+           .text(`#${numero}`, x, y + 16, {
              width: boxWidth,
              align: 'center'
            });
@@ -228,39 +262,50 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
       // FOOTER
       // ═══════════════════════════════════════
 
-      // Ir al final de la página actual
       doc.y = 750;
 
-      // Línea separadora
-      doc.strokeColor(colorDorado)
+      // Línea separadora azul
+      doc.strokeColor(colorAzulMedio)
          .lineWidth(2)
          .moveTo(50, 750)
          .lineTo(545, 750)
          .stroke();
 
-      // Texto del footer
-      doc.fontSize(10)
-         .fillColor(colorTextoGris)
+      // Franja de fondo del footer
+      doc.rect(0, 755, 595, 90)
+         .fill(colorAzulOscuro);
+
+      doc.fontSize(11)
+         .fillColor('#ffffff')
+         .font('Helvetica-Bold')
+         .text('StayAway Rifas', 50, 765, { align: 'center', width: 495 });
+
+      doc.fontSize(9)
+         .fillColor('#ffffff')
          .font('Helvetica')
-         .text('StayAway Rifas - Todos los derechos reservados © 2026', 50, 760, {
+         .opacity(0.85)
+         .text('Todos los derechos reservados © 2026', 50, 780, {
            align: 'center',
            width: 495
          });
 
       doc.fontSize(9)
-         .fillColor(colorTextoGris)
-         .text('Guarda este documento como comprobante de tu participación', 50, 775, {
+         .fillColor('#ffffff')
+         .opacity(0.75)
+         .text('Guarda este documento como comprobante de tu participación', 50, 795, {
            align: 'center',
            width: 495
          });
 
-      // Finalizar PDF
+      doc.opacity(1);
       doc.end();
+
     } catch (error) {
       reject(error);
     }
   });
 };
+
 
 
 /**
@@ -415,138 +460,127 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Compra Exitosa - StayAway Rifas</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #f7f9fc 0%, #CFDEE7 100%);
       padding: 20px;
     }
     .email-container {
       max-width: 600px;
       margin: 0 auto;
       background: #ffffff;
-      border-radius: 16px;
+      border-radius: 20px;
       overflow: hidden;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      box-shadow: 0 18px 45px rgba(10, 54, 157, 0.18);
     }
     .header {
-      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%);
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
       padding: 40px 30px;
       text-align: center;
       color: white;
     }
     .header h1 {
-      font-size: 32px;
+      font-size: 30px;
       margin-bottom: 10px;
-      text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+      font-weight: 800;
     }
     .header p {
-      font-size: 18px;
-      opacity: 0.95;
+      font-size: 16px;
+      opacity: 0.9;
     }
     .content {
       padding: 40px 30px;
     }
     .success-icon {
       text-align: center;
-      font-size: 80px;
+      font-size: 72px;
       margin-bottom: 20px;
     }
     .greeting {
-      font-size: 24px;
-      color: #333;
-      margin-bottom: 20px;
+      font-size: 22px;
+      color: #0A369D;
+      margin-bottom: 16px;
       text-align: center;
+      font-weight: 800;
     }
     .message {
-      font-size: 16px;
-      color: #666;
-      line-height: 1.6;
-      margin-bottom: 30px;
+      font-size: 15px;
+      color: #4a4a4a;
+      line-height: 1.7;
+      margin-bottom: 28px;
       text-align: center;
     }
-    
-    /* ✨ SECCIÓN DE PROMOCIÓN (SI APLICA) */
     .promo-banner {
-      background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
       color: white;
       padding: 20px;
-      border-radius: 12px;
-      margin: 30px 0;
+      border-radius: 16px;
+      margin: 28px 0;
       text-align: center;
-      border: 3px solid #2e7d32;
-      box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+      box-shadow: 0 10px 25px rgba(10, 54, 157, 0.35);
     }
     .promo-banner .gift-icon {
-      font-size: 48px;
+      font-size: 44px;
       margin-bottom: 10px;
     }
     .promo-banner h2 {
-      font-size: 24px;
-      margin-bottom: 10px;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+      font-size: 22px;
+      margin-bottom: 8px;
+      font-weight: 800;
     }
     .promo-banner p {
-      font-size: 18px;
-      font-weight: bold;
+      font-size: 16px;
+      opacity: 0.95;
     }
     .promo-banner .promo-details {
-      background: rgba(255,255,255,0.2);
-      padding: 15px;
-      border-radius: 8px;
-      margin-top: 15px;
-      font-size: 16px;
+      background: rgba(255,255,255,0.15);
+      padding: 14px;
+      border-radius: 10px;
+      margin-top: 14px;
+      font-size: 15px;
     }
-    
     .transaction-info {
-      background: #f8f9fa;
-      border-radius: 12px;
-      padding: 25px;
-      margin: 30px 0;
-      border-left: 5px solid #c8a951;
+      background: #f5f7fb;
+      border-radius: 14px;
+      padding: 24px;
+      margin: 28px 0;
+      border-left: 5px solid #0A369D;
     }
     .info-row {
       display: flex;
       justify-content: space-between;
-      padding: 12px 0;
-      border-bottom: 1px solid #e0e0e0;
+      padding: 11px 0;
+      border-bottom: 1px solid #CFDEE7;
     }
-    .info-row:last-child {
-      border-bottom: none;
-    }
+    .info-row:last-child { border-bottom: none; }
     .info-label {
       font-weight: 600;
-      color: #555;
-      font-size: 15px;
+      color: #5a6370;
+      font-size: 14px;
     }
     .info-value {
-      color: #333;
+      color: #2d2d2d;
       font-weight: 500;
-      font-size: 15px;
+      font-size: 14px;
     }
     .info-value.highlight {
-      color: #c8a951;
-      font-weight: 700;
-      font-size: 18px;
-    }
-    .info-value.promo {
-      color: #4caf50;
-      font-weight: 700;
+      color: #0A369D;
+      font-weight: 800;
       font-size: 16px;
     }
-    .numbers-section {
-      margin: 30px 0;
-    }
-    .section-title {
-      font-size: 20px;
-      color: #c8a951;
-      margin-bottom: 20px;
-      text-align: center;
+    .info-value.promo {
+      color: #4472CA;
       font-weight: 700;
+      font-size: 15px;
+    }
+    .numbers-section { margin: 28px 0; }
+    .section-title {
+      font-size: 18px;
+      color: #0A369D;
+      margin-bottom: 18px;
+      text-align: center;
+      font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 1px;
     }
@@ -554,111 +588,72 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
       gap: 10px;
-      margin-top: 20px;
+      margin-top: 18px;
     }
     .number-box {
-      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%);
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
       color: white;
-      padding: 15px;
-      border-radius: 8px;
+      padding: 14px;
+      border-radius: 10px;
       text-align: center;
-      font-weight: bold;
-      font-size: 18px;
-      box-shadow: 0 2px 8px rgba(200, 169, 81, 0.3);
-      transition: transform 0.2s;
-    }
-    .number-box:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 4px 12px rgba(200, 169, 81, 0.5);
+      font-weight: 700;
+      font-size: 17px;
+      box-shadow: 0 4px 12px rgba(10, 54, 157, 0.25);
     }
     .attachment-note {
-      background: #fff3cd;
-      border: 2px solid #ffc107;
-      border-radius: 8px;
-      padding: 15px;
-      margin: 20px 0;
+      background: #f0f4ff;
+      border: 2px solid #CFDEE7;
+      border-radius: 10px;
+      padding: 14px;
+      margin: 18px 0;
       text-align: center;
-      color: #856404;
+      color: #0A369D;
     }
     .attachment-note strong {
       display: block;
-      font-size: 16px;
-      margin-bottom: 5px;
-    }
-    .cta-button {
-      display: inline-block;
-      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%);
-      color: white;
-      padding: 15px 40px;
-      border-radius: 30px;
-      text-decoration: none;
-      font-weight: bold;
-      font-size: 16px;
-      margin: 20px auto;
-      text-align: center;
-      box-shadow: 0 4px 15px rgba(200, 169, 81, 0.4);
-      transition: transform 0.2s;
-    }
-    .cta-button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(200, 169, 81, 0.6);
+      font-size: 15px;
+      margin-bottom: 4px;
     }
     .footer {
-      background: #2c2c2c;
+      background: #0A369D;
       color: #ffffff;
-      padding: 30px;
+      padding: 28px 30px;
       text-align: center;
-      font-size: 14px;
+      font-size: 13px;
     }
-    .footer p {
-      margin: 5px 0;
-      opacity: 0.9;
-    }
-    .footer .social-links {
-      margin-top: 20px;
-    }
+    .footer p { margin: 4px 0; opacity: 0.85; }
+    .footer .social-links { margin-top: 16px; }
     .footer .social-links a {
-      color: #c8a951;
+      color: #92B4F4;
       text-decoration: none;
       margin: 0 10px;
       font-weight: 600;
     }
     @media only screen and (max-width: 600px) {
-      .header h1 {
-        font-size: 24px;
-      }
-      .numbers-grid {
-        grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
-        gap: 8px;
-      }
-      .number-box {
-        padding: 12px;
-        font-size: 16px;
-      }
+      .header h1 { font-size: 22px; }
+      .numbers-grid { grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 8px; }
+      .number-box { padding: 11px; font-size: 15px; }
     }
   </style>
 </head>
 <body>
   <div class="email-container">
-    <!-- Header -->
     <div class="header">
       <h1>🎉 StayAway Rifas</h1>
       <p>¡Tu compra fue exitosa!</p>
     </div>
 
-    <!-- Content -->
     <div class="content">
       <div class="success-icon">✅</div>
       
       <h2 class="greeting">¡Hola, ${usuario.nombres} ${usuario.apellidos}!</h2>
       
       <p class="message">
-        Tu compra ha sido procesada exitosamente. ${tienePaqueteGratis ? '¡Y tienes números de regalo!' : 'Ya estás participando en la rifa.'} 
+        Tu compra ha sido procesada exitosamente. ${tienePaqueteGratis ? '¡Y tienes números de regalo!' : 'Ya estás participando en la rifa.'}
         A continuación encontrarás todos los detalles de tu transacción.
       </p>
 
       ${tienePaqueteGratis ? `
-      <!-- 🎁 BANNER DE PROMOCIÓN -->
       <div class="promo-banner">
         <div class="gift-icon">🎁</div>
         <h2>¡Felicidades! Obtuviste números GRATIS</h2>
@@ -671,7 +666,6 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
       </div>
       ` : ''}
 
-      <!-- Información de la transacción -->
       <div class="transaction-info">
         <div class="info-row">
           <span class="info-label">Rifa:</span>
@@ -702,75 +696,33 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
         <div class="info-row">
           <span class="info-label">Fecha:</span>
           <span class="info-value">${new Date().toLocaleDateString('es-CO', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
+            year: 'numeric', month: 'long', day: 'numeric',
+            hour: '2-digit', minute: '2-digit'
           })}</span>
         </div>
       </div>
 
-      <!-- Nota sobre el PDF adjunto -->
       <div class="attachment-note">
         <strong>📎 Archivo adjunto:</strong>
-        Hemos incluido un PDF con todos tus números en alta calidad.
-        ${tienePaqueteGratis ? '<br><strong>Incluye tus números comprados Y los números gratis. 🎁</strong>' : ''}
+        Encuentra el PDF con todos tus números en el archivo adjunto de este correo.
       </div>
 
-      <!-- Tus números -->
       <div class="numbers-section">
-        <h3 class="section-title">🎯 Tus Números de la Suerte</h3>
-        <p style="text-align: center; color: #666; margin-bottom: 20px;">
-          ${tienePaqueteGratis 
-            ? `Has recibido un total de <strong>${transaccion.cantidadTotal} números</strong> (${transaccion.cantidad} comprados + ${transaccion.numerosGratis} gratis)`
-            : `Total: ${numerosAsignados.length} números`
-          }
-        </p>
+        <h3 class="section-title">🎯 Tus Números</h3>
         <div class="numbers-grid">
-          ${numerosAsignados.slice(0, 30).map(num => `
-            <div class="number-box">#${num}</div>
-          `).join('')}
-          ${numerosAsignados.length > 30 ? `
-            <div style="grid-column: 1 / -1; text-align: center; padding: 20px; color: #666; font-style: italic;">
-              ... y ${numerosAsignados.length - 30} números más en el PDF adjunto
-            </div>
-          ` : ''}
+          ${numerosAsignados.map(n => `<div class="number-box">#${n}</div>`).join('')}
         </div>
-      </div>
-
-      <!-- Call to Action -->
-      <div style="text-align: center; margin: 40px 0;">
-        <a href="${process.env.FRONTEND_URL || 'https://stayaway.com'}" class="cta-button">
-          Ver Mis Rifas
-        </a>
-      </div>
-
-      <!-- Mensaje final -->
-      <div style="background: #e8f5e9; border-left: 4px solid #4caf50; padding: 15px; border-radius: 8px; margin-top: 30px;">
-        <p style="color: #2e7d32; font-size: 15px; margin: 0;">
-          <strong>¡Mucha suerte! 🍀</strong><br>
-          Guarda este correo y el PDF adjunto como comprobante de tu participación.
-          ${tienePaqueteGratis ? '<br><br><strong>Gracias por aprovechar nuestras promociones. 🎉</strong>' : ''}
-        </p>
       </div>
     </div>
 
-    <!-- Footer -->
     <div class="footer">
-      <p><strong>StayAway Rifas</strong></p>
-      <p>Tu plataforma de rifas en línea</p>
-      <p style="margin-top: 15px; font-size: 12px; opacity: 0.7;">
-        Este es un correo automático, por favor no responder.
-      </p>
+      <p>StayAway Rifas — Todos los derechos reservados © 2026</p>
+      <p>Guarda este correo como comprobante de tu participación</p>
       <div class="social-links">
-        <a href="#">Facebook</a>
         <a href="#">Instagram</a>
-        <a href="#">Twitter</a>
+        <a href="#">WhatsApp</a>
+        <a href="#">stayaway.com.co</a>
       </div>
-      <p style="margin-top: 20px; font-size: 12px; opacity: 0.6;">
-        © ${new Date().getFullYear()} StayAway Rifas. Todos los derechos reservados.
-      </p>
     </div>
   </div>
 </body>
@@ -781,258 +733,199 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
 const generarTemplateBienvenida = (usuario, passwordPlana) => {
   return `
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bienvenido a StayAway Rifas</title>
   <style>
-    body { 
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-      line-height: 1.6; 
-      color: #333333; 
-      background-color: #f5f5f5;
-      margin: 0;
-      padding: 0;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #f7f9fc 0%, #CFDEE7 100%);
+      padding: 20px;
     }
-    .container { 
-      max-width: 600px; 
-      margin: 30px auto; 
+    .email-container {
+      max-width: 600px;
+      margin: 0 auto;
       background: #ffffff;
-      border-radius: 12px;
+      border-radius: 20px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 18px 45px rgba(10, 54, 157, 0.18);
     }
-    .header { 
-      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%); 
-      color: #ffffff; 
-      padding: 40px 30px; 
+    .header {
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
+      padding: 40px 30px;
       text-align: center;
+      color: white;
     }
     .header h1 {
-      margin: 0 0 10px 0;
-      font-size: 32px;
-      font-weight: 700;
-    }
-    .header p {
-      margin: 0;
-      font-size: 16px;
-      opacity: 0.95;
-    }
-    .content { 
-      padding: 40px 30px;
-    }
-    .content h2 {
-      color: #1a1a1a;
-      font-size: 22px;
-      margin: 0 0 20px 0;
-    }
-    .content p {
-      color: #555555;
-      font-size: 15px;
-      margin: 15px 0;
-    }
-    .credentials-box {
-      background: linear-gradient(135deg, #fff9e6 0%, #ffffff 100%);
-      border: 3px solid #c8a951;
-      border-radius: 12px;
-      padding: 30px;
-      margin: 30px 0;
-    }
-    .credentials-box h3 {
-      color: #c8a951;
-      font-size: 20px;
-      margin: 0 0 20px 0;
-      font-weight: 600;
-      text-align: center;
-    }
-    .credential-row {
-      margin: 15px 0;
-    }
-    .credential-label {
-      color: #666666;
-      font-weight: 600;
-      font-size: 14px;
-      display: block;
+      font-size: 30px;
+      font-weight: 800;
       margin-bottom: 8px;
     }
-    .credential-value {
-      background: #ffffff;
-      border: 2px solid #e0e0e0;
-      border-radius: 8px;
-      padding: 12px 15px;
-      font-size: 15px;
-      color: #1a1a1a;
-      font-weight: 600;
+    .header p {
+      font-size: 16px;
+      opacity: 0.9;
     }
-    .password-box {
-      background: #ffffff;
-      border: 3px dashed #c8a951;
-      border-radius: 10px;
-      padding: 20px;
-      margin: 15px 0;
+    .content {
+      padding: 40px 30px;
+    }
+    .welcome-icon {
       text-align: center;
+      font-size: 72px;
+      margin-bottom: 20px;
+    }
+    .greeting {
+      font-size: 22px;
+      color: #0A369D;
+      font-weight: 800;
+      text-align: center;
+      margin-bottom: 14px;
+    }
+    .message {
+      font-size: 15px;
+      color: #4a4a4a;
+      line-height: 1.7;
+      margin-bottom: 28px;
+      text-align: center;
+    }
+    .credentials-box {
+      background: #f5f7fb;
+      border-radius: 14px;
+      padding: 24px;
+      margin: 28px 0;
+      border-left: 5px solid #0A369D;
+    }
+    .credentials-box h3 {
+      font-size: 16px;
+      color: #0A369D;
+      font-weight: 800;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .credential-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 11px 0;
+      border-bottom: 1px solid #CFDEE7;
+    }
+    .credential-row:last-child { border-bottom: none; }
+    .credential-label {
+      font-weight: 600;
+      color: #5a6370;
+      font-size: 14px;
+    }
+    .credential-value {
+      color: #0A369D;
+      font-weight: 700;
+      font-size: 14px;
     }
     .password-value {
-      font-family: 'Courier New', monospace;
-      font-size: 24px;
-      font-weight: 900;
-      color: #c8a951;
-      letter-spacing: 2px;
-      margin: 15px 0;
-      word-break: break-all;
-    }
-    .warning-box {
-      background: #fff3cd;
-      border: 2px solid #ffc107;
-      border-radius: 8px;
-      padding: 20px;
-      margin: 20px 0;
-    }
-    .warning-box p {
-      color: #856404;
-      font-weight: 600;
-      margin: 5px 0;
-      font-size: 14px;
-    }
-    .warning-icon {
-      color: #f59e0b;
-      font-size: 24px;
-      font-weight: 700;
-    }
-    .login-box {
-      background: #e3f2fd;
-      border: 2px solid #2196f3;
-      border-radius: 8px;
-      padding: 20px;
-      text-align: center;
-      margin: 25px 0;
-    }
-    .login-box p {
-      color: #1976d2;
-      font-weight: 600;
-      margin: 10px 0;
-    }
-    .login-button {
-      display: inline-block;
-      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%);
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
       color: #ffffff;
-      text-decoration: none;
-      padding: 15px 40px;
-      border-radius: 8px;
+      padding: 4px 14px;
+      border-radius: 999px;
       font-weight: 700;
-      font-size: 16px;
-      margin-top: 15px;
-      transition: all 0.3s ease;
+      font-size: 15px;
+      letter-spacing: 0.08em;
     }
-    .login-button:hover {
-      background: linear-gradient(135deg, #b89840 0%, #c8a951 100%);
-      box-shadow: 0 4px 12px rgba(200, 169, 81, 0.4);
+    .alert-box {
+      background: #f0f4ff;
+      border: 2px solid #CFDEE7;
+      border-radius: 12px;
+      padding: 16px;
+      margin: 20px 0;
+      color: #0A369D;
+      font-size: 14px;
+      line-height: 1.6;
+      text-align: center;
     }
-    .benefits-box {
-      background: #f8f9fa;
-      border-left: 4px solid #c8a951;
-      border-radius: 8px;
-      padding: 25px;
-      margin: 25px 0;
-    }
-    .benefits-box h3 {
-      color: #c8a951;
-      font-size: 18px;
-      margin: 0 0 15px 0;
-      font-weight: 600;
-    }
-    .benefits-box ul {
-      margin: 15px 0;
-      padding-left: 25px;
-    }
-    .benefits-box li {
-      color: #555555;
-      margin: 12px 0;
-      line-height: 1.8;
+    .alert-box strong {
+      display: block;
+      margin-bottom: 4px;
       font-size: 15px;
     }
-    .footer { 
-      background: #1a1a1a;
-      color: #ffffff;
-      text-align: center; 
-      padding: 30px;
+    .cta-wrapper {
+      text-align: center;
+      margin: 28px 0 10px;
     }
-    .footer p {
-      margin: 10px 0;
-      font-size: 14px;
-      color: #cccccc;
-    }
-    .footer a {
-      color: #c8a951;
+    .cta-button {
+      display: inline-block;
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
+      color: white;
+      padding: 14px 36px;
+      border-radius: 999px;
       text-decoration: none;
+      font-weight: 700;
+      font-size: 15px;
+      box-shadow: 0 10px 25px rgba(10, 54, 157, 0.35);
     }
-    .divider {
-      height: 1px;
-      background: #e0e0e0;
-      margin: 30px 0;
+    .footer {
+      background: #0A369D;
+      color: #ffffff;
+      padding: 28px 30px;
+      text-align: center;
+      font-size: 13px;
+    }
+    .footer p { margin: 4px 0; opacity: 0.85; }
+    .footer .social-links { margin-top: 16px; }
+    .footer .social-links a {
+      color: #92B4F4;
+      text-decoration: none;
+      margin: 0 10px;
+      font-weight: 600;
     }
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="email-container">
     <div class="header">
-      <h1>Bienvenido a StayAway Rifas</h1>
-      <p>Tu cuenta ha sido creada exitosamente</p>
+      <h1>👋 StayAway Rifas</h1>
+      <p>¡Bienvenido a la comunidad!</p>
     </div>
-    
+
     <div class="content">
-      <h2>Estimado/a ${usuario.nombres} ${usuario.apellidos},</h2>
-      <p>Te damos la bienvenida a nuestra plataforma de rifas. Tu cuenta ha sido creada automáticamente durante tu compra para que puedas gestionar tus participaciones de forma segura.</p>
-      
-      <div class="credentials-box">
-        <h3>Credenciales de Acceso</h3>
-        
-        <div class="credential-row">
-          <span class="credential-label">Correo Electrónico:</span>
-          <div class="credential-value">${usuario.correo_electronico}</div>
-        </div>
+      <div class="welcome-icon">🎊</div>
 
-        <div class="credential-row">
-          <span class="credential-label">Contraseña Temporal:</span>
-          <div class="password-box">
-            <div class="password-value">${passwordPlana}</div>
-          </div>
-        </div>
+      <h2 class="greeting">¡Hola, ${usuario.nombres} ${usuario.apellidos}!</h2>
 
-        <div class="warning-box">
-          <p><span class="warning-icon">⚠</span> <strong>IMPORTANTE:</strong> Guarda esta contraseña en un lugar seguro.</p>
-          <p>Te recomendamos cambiarla cuando ingreses por primera vez a tu cuenta.</p>
-        </div>
-      </div>
-
-      <div class="login-box">
-        <p>Accede a tu cuenta para ver tus números y gestionar tu perfil:</p>
-        <a href="${process.env.FRONTEND_URL}/login" class="login-button">Iniciar Sesión</a>
-      </div>
-
-      <div class="benefits-box">
-        <h3>¿Qué puedes hacer en tu cuenta?</h3>
-        <ul>
-          <li>Ver todos tus números comprados en tiempo real</li>
-          <li>Consultar el estado de tus rifas activas</li>
-          <li>Actualizar tu información personal y de contacto</li>
-          <li>Cambiar tu contraseña por una personalizada</li>
-          <li>Recibir notificaciones sobre sorteos y resultados</li>
-          <li>Participar en nuevas rifas de forma rápida</li>
-        </ul>
-      </div>
-
-      <div class="divider"></div>
-
-      <p style="color: #666666; font-size: 14px; text-align: center;">
-        Si tienes alguna dificultad para acceder a tu cuenta, no dudes en contactarnos. Estamos aquí para ayudarte.
+      <p class="message">
+        Tu cuenta ha sido creada exitosamente. Ya puedes ingresar a la plataforma
+        y participar en nuestras rifas con las siguientes credenciales:
       </p>
+
+      <div class="credentials-box">
+        <h3>🔐 Tus credenciales de acceso</h3>
+        <div class="credential-row">
+          <span class="credential-label">Correo electrónico:</span>
+          <span class="credential-value">${usuario.correo_electronico}</span>
+        </div>
+        <div class="credential-row">
+          <span class="credential-label">Contraseña temporal:</span>
+          <span class="password-value">${passwordPlana}</span>
+        </div>
+      </div>
+
+      <div class="alert-box">
+        <strong>⚠️ Importante</strong>
+        Por seguridad, te recomendamos cambiar tu contraseña después de iniciar sesión por primera vez.
+      </div>
+
+      <div class="cta-wrapper">
+        <a href="${process.env.FRONTEND_URL}" class="cta-button">Ingresar a StayAway Rifas →</a>
+      </div>
     </div>
-    
+
     <div class="footer">
-      <p style="font-weight: 600; font-size: 16px; color: #c8a951;">StayAway Rifas</p>
-      <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
-      <p>Soporte: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
+      <p>StayAway Rifas — Todos los derechos reservados © 2026</p>
+      <p>Si no solicitaste esta cuenta, ignora este correo.</p>
+      <div class="social-links">
+        <a href="#">Instagram</a>
+        <a href="#">WhatsApp</a>
+        <a href="#">stayaway.com.co</a>
+      </div>
     </div>
   </div>
 </body>
@@ -1043,45 +936,178 @@ const generarTemplateBienvenida = (usuario, passwordPlana) => {
 const generarTemplateRecuperacion = (usuario, resetUrl) => {
   return `
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Restablecer contraseña - StayAway Rifas</title>
   <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-    .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
-    .button { display: inline-block; background: #f59e0b; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; }
-    .warning { background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 15px; margin: 20px 0; }
-    .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #f7f9fc 0%, #CFDEE7 100%);
+      padding: 20px;
+    }
+    .email-container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 18px 45px rgba(10, 54, 157, 0.18);
+    }
+    .header {
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
+      padding: 40px 30px;
+      text-align: center;
+      color: white;
+    }
+    .header h1 {
+      font-size: 30px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+    .header p {
+      font-size: 16px;
+      opacity: 0.9;
+    }
+    .content {
+      padding: 40px 30px;
+    }
+    .lock-icon {
+      text-align: center;
+      font-size: 72px;
+      margin-bottom: 20px;
+    }
+    .greeting {
+      font-size: 22px;
+      color: #0A369D;
+      font-weight: 800;
+      text-align: center;
+      margin-bottom: 14px;
+    }
+    .message {
+      font-size: 15px;
+      color: #4a4a4a;
+      line-height: 1.7;
+      margin-bottom: 28px;
+      text-align: center;
+    }
+    .cta-wrapper {
+      text-align: center;
+      margin: 28px 0;
+    }
+    .cta-button {
+      display: inline-block;
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
+      color: white;
+      padding: 16px 40px;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 16px;
+      box-shadow: 0 10px 25px rgba(10, 54, 157, 0.35);
+    }
+    .expiry-box {
+      background: #f0f4ff;
+      border: 2px solid #CFDEE7;
+      border-radius: 12px;
+      padding: 16px;
+      margin: 24px 0;
+      text-align: center;
+      color: #0A369D;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .expiry-box strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 15px;
+    }
+    .url-fallback {
+      background: #f5f7fb;
+      border-radius: 10px;
+      padding: 14px;
+      margin: 20px 0;
+      word-break: break-all;
+      font-size: 12px;
+      color: #5a6370;
+      text-align: center;
+      border: 1px solid #CFDEE7;
+    }
+    .url-fallback strong {
+      display: block;
+      color: #0A369D;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+    .ignore-note {
+      font-size: 13px;
+      color: #8a96a8;
+      text-align: center;
+      margin-top: 8px;
+    }
+    .footer {
+      background: #0A369D;
+      color: #ffffff;
+      padding: 28px 30px;
+      text-align: center;
+      font-size: 13px;
+    }
+    .footer p { margin: 4px 0; opacity: 0.85; }
+    .footer .social-links { margin-top: 16px; }
+    .footer .social-links a {
+      color: #92B4F4;
+      text-decoration: none;
+      margin: 0 10px;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="email-container">
     <div class="header">
-      <h1>🔐 Restablecer Contraseña</h1>
-      <p>Solicitud de recuperación de cuenta</p>
+      <h1>🔐 StayAway Rifas</h1>
+      <p>Restablece tu contraseña</p>
     </div>
+
     <div class="content">
-      <h2>Hola ${usuario.nombres},</h2>
-      <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en StayAway Rifas.</p>
-      
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${resetUrl}" class="button">Restablecer Contraseña</a>
+      <div class="lock-icon">🔑</div>
+
+      <h2 class="greeting">¡Hola, ${usuario.nombres}!</h2>
+
+      <p class="message">
+        Recibimos una solicitud para restablecer la contraseña de tu cuenta.
+        Haz clic en el botón a continuación para crear una nueva contraseña:
+      </p>
+
+      <div class="cta-wrapper">
+        <a href="${resetUrl}" class="cta-button">Restablecer contraseña →</a>
       </div>
 
-      <div class="warning">
-        <p><strong>⚠️ IMPORTANTE:</strong></p>
-        <p>Este enlace expirará en 1 hora por seguridad.</p>
-        <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
+      <div class="expiry-box">
+        <strong>⏱️ Este enlace expira en 1 hora</strong>
+        Si no solicitaste este cambio, puedes ignorar este correo con total seguridad.
       </div>
 
-      <p>O copia y pega este enlace en tu navegador:</p>
-      <p style="word-break: break-all; color: #666;">${resetUrl}</p>
+      <div class="url-fallback">
+        <strong>¿El botón no funciona? Copia este enlace en tu navegador:</strong>
+        ${resetUrl}
+      </div>
+
+      <p class="ignore-note">
+        Si no solicitaste restablecer tu contraseña, tu cuenta sigue segura y no es necesario hacer nada.
+      </p>
     </div>
+
     <div class="footer">
-      <p>StayAway Rifas - Todos los derechos reservados © ${new Date().getFullYear()}</p>
-      <p>Si tienes alguna pregunta, contáctanos en soporte@stayaway.com.co</p>
+      <p>StayAway Rifas — Todos los derechos reservados © 2026</p>
+      <p>Este correo fue enviado automáticamente, por favor no respondas.</p>
+      <div class="social-links">
+        <a href="#">Instagram</a>
+        <a href="#">WhatsApp</a>
+        <a href="#">stayaway.com.co</a>
+      </div>
     </div>
   </div>
 </body>
@@ -1159,163 +1185,213 @@ const generarTemplateGanador = (ganador, rifa, numeroGanador, loteriaReferencia)
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { 
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-      line-height: 1.6; 
-      color: #333333; 
-      background-color: #f5f5f5;
-      margin: 0;
-      padding: 0;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333333;
+      background: linear-gradient(135deg, #f7f9fc 0%, #CFDEE7 100%);
+      padding: 20px;
     }
-    .container { 
-      max-width: 600px; 
-      margin: 30px auto; 
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
       background: #ffffff;
-      border-radius: 12px;
+      border-radius: 20px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 18px 45px rgba(10, 54, 157, 0.18);
     }
-    .header { 
-      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%); 
-      color: #ffffff; 
-      padding: 50px 30px; 
+    .header {
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
+      color: #ffffff;
+      padding: 50px 30px;
       text-align: center;
     }
     .header h1 {
-      margin: 0 0 15px 0;
+      margin: 0 0 12px 0;
       font-size: 32px;
-      font-weight: 700;
+      font-weight: 800;
       text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
     .header p {
       margin: 0;
-      font-size: 18px;
-      opacity: 0.95;
+      font-size: 17px;
+      opacity: 0.92;
     }
-    .content { 
+    .content {
       padding: 40px 30px;
     }
+    .greeting {
+      font-size: 22px;
+      color: #0A369D;
+      font-weight: 800;
+      margin-bottom: 14px;
+    }
+    .intro-text {
+      font-size: 15px;
+      color: #4a4a4a;
+      line-height: 1.7;
+      margin-bottom: 28px;
+    }
     .winner-banner {
-      background: linear-gradient(135deg, #fff9e6 0%, #ffffff 100%);
-      border: 3px solid #c8a951;
-      border-radius: 12px;
+      background: linear-gradient(135deg, #f0f4ff 0%, #ffffff 100%);
+      border: 3px solid #0A369D;
+      border-radius: 16px;
       padding: 30px;
       text-align: center;
-      margin: 30px 0;
-    }
-    .winner-number {
-      font-size: 48px;
-      font-weight: 900;
-      color: #c8a951;
-      font-family: 'Courier New', monospace;
-      margin: 20px 0;
-      letter-spacing: 3px;
+      margin: 28px 0;
+      box-shadow: 0 10px 25px rgba(10, 54, 157, 0.12);
     }
     .winner-label {
-      font-size: 14px;
-      color: #666666;
-      font-weight: 600;
+      font-size: 13px;
+      color: #5a6370;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 0.09em;
+      margin-bottom: 10px;
+    }
+    .winner-number {
+      font-size: 52px;
+      font-weight: 900;
+      color: #0A369D;
+      font-family: 'Courier New', monospace;
+      margin: 14px 0;
+      letter-spacing: 4px;
+    }
+    .winner-trophy {
+      font-size: 48px;
+      margin-bottom: 10px;
     }
     .info-box {
-      background: #f8f9fa;
-      border-left: 4px solid #c8a951;
-      padding: 25px;
-      border-radius: 8px;
-      margin: 25px 0;
+      background: #f5f7fb;
+      border-left: 5px solid #0A369D;
+      padding: 24px;
+      border-radius: 14px;
+      margin: 26px 0;
     }
     .info-box h3 {
-      color: #c8a951;
-      font-size: 18px;
-      margin: 0 0 15px 0;
-      font-weight: 600;
+      color: #0A369D;
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 16px;
     }
     .info-row {
       display: flex;
       justify-content: space-between;
-      padding: 10px 0;
-      border-bottom: 1px solid #e0e0e0;
+      padding: 11px 0;
+      border-bottom: 1px solid #CFDEE7;
     }
-    .info-row:last-child {
-      border-bottom: none;
-    }
+    .info-row:last-child { border-bottom: none; }
     .info-label {
-      color: #666666;
+      color: #5a6370;
       font-weight: 600;
+      font-size: 14px;
     }
     .info-value {
-      color: #1a1a1a;
+      color: #0A369D;
       font-weight: 700;
+      font-size: 14px;
     }
     .instructions-box {
-      background: #e3f2fd;
-      border: 2px solid #2196f3;
-      border-radius: 8px;
-      padding: 25px;
-      margin: 25px 0;
+      background: #f0f4ff;
+      border: 2px solid #CFDEE7;
+      border-radius: 14px;
+      padding: 24px;
+      margin: 26px 0;
     }
     .instructions-box h3 {
-      color: #1976d2;
-      font-size: 18px;
-      margin: 0 0 15px 0;
+      color: #0A369D;
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 16px;
     }
     .instructions-box ol {
-      margin: 15px 0;
+      margin: 0;
       padding-left: 20px;
     }
     .instructions-box li {
-      color: #424242;
+      color: #4a4a4a;
       margin: 10px 0;
-      line-height: 1.8;
-    }
-    .footer { 
-      background: #1a1a1a;
-      color: #ffffff;
-      text-align: center; 
-      padding: 30px;
-    }
-    .footer p {
-      margin: 10px 0;
+      line-height: 1.7;
       font-size: 14px;
-      color: #cccccc;
-    }
-    .footer a {
-      color: #c8a951;
-      text-decoration: none;
     }
     .divider {
       height: 1px;
-      background: #e0e0e0;
-      margin: 30px 0;
+      background: #CFDEE7;
+      margin: 28px 0;
+    }
+    .closing-note {
+      color: #5a6370;
+      font-size: 14px;
+      text-align: center;
+      line-height: 1.7;
+    }
+    .footer {
+      background: #0A369D;
+      color: #ffffff;
+      text-align: center;
+      padding: 28px 30px;
+    }
+    .footer .brand {
+      font-weight: 800;
+      font-size: 16px;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+    .footer p {
+      margin: 4px 0;
+      font-size: 13px;
+      opacity: 0.85;
+    }
+    .footer a {
+      color: #92B4F4;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .footer .social-links {
+      margin-top: 16px;
+    }
+    .footer .social-links a {
+      margin: 0 10px;
     }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>¡Felicidades!</h1>
+      <h1>🏆 ¡Felicidades!</h1>
       <p>Eres el ganador de nuestra rifa</p>
     </div>
-    
+
     <div class="content">
-      <h2 style="color: #1a1a1a; font-size: 24px;">Estimado/a ${ganador.nombres} ${ganador.apellidos},</h2>
-      <p style="font-size: 16px; color: #555555;">Nos complace enormemente informarte que has resultado ganador/a de nuestra rifa. Este es un momento especial y queremos asegurarnos de que tengas toda la información necesaria.</p>
-      
+      <h2 class="greeting">Estimado/a ${ganador.nombres} ${ganador.apellidos},</h2>
+      <p class="intro-text">
+        Nos complace enormemente informarte que has resultado ganador/a de nuestra rifa.
+        Este es un momento especial y queremos asegurarnos de que tengas toda la información necesaria.
+      </p>
+
       <div class="winner-banner">
+        <div class="winner-trophy">🎯</div>
         <p class="winner-label">Número Ganador</p>
         <div class="winner-number">#${numeroGanador}</div>
       </div>
 
       <div class="info-box">
-        <h3>Información de la Rifa</h3>
+        <h3>📋 Información de la Rifa</h3>
         <div class="info-row">
           <span class="info-label">Rifa:</span>
           <span class="info-value">${rifa.titulo}</span>
         </div>
         <div class="info-row">
           <span class="info-label">Fecha del sorteo:</span>
-          <span class="info-value">${new Date(rifa.fecha_sorteo).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+          <span class="info-value">${new Date(rifa.fecha_sorteo).toLocaleDateString('es-CO', {
+            year: 'numeric', month: 'long', day: 'numeric'
+          })}</span>
         </div>
         ${loteriaReferencia ? `
         <div class="info-row">
@@ -1326,7 +1402,7 @@ const generarTemplateGanador = (ganador, rifa, numeroGanador, loteriaReferencia)
       </div>
 
       <div class="instructions-box">
-        <h3>Próximos Pasos para Reclamar tu Premio</h3>
+        <h3>🚀 Próximos pasos para reclamar tu premio</h3>
         <ol>
           <li>Conserva este correo como comprobante de tu premio.</li>
           <li>Nuestro equipo se pondrá en contacto contigo en las próximas 48 horas hábiles.</li>
@@ -1338,15 +1414,21 @@ const generarTemplateGanador = (ganador, rifa, numeroGanador, loteriaReferencia)
 
       <div class="divider"></div>
 
-      <p style="color: #666666; font-size: 14px; text-align: center;">
-        Te agradecemos por tu participación y confianza en StayAway Rifas. Esperamos que disfrutes tu premio.
+      <p class="closing-note">
+        Te agradecemos por tu participación y confianza en StayAway Rifas.<br>
+        Esperamos que disfrutes tu premio. ¡Muchas felicidades! 🎉
       </p>
     </div>
-    
+
     <div class="footer">
-      <p style="font-weight: 600; font-size: 16px; color: #c8a951;">StayAway Rifas</p>
+      <p class="brand">StayAway Rifas</p>
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
       <p>Contacto: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
+      <div class="social-links">
+        <a href="#">Instagram</a>
+        <a href="#">WhatsApp</a>
+        <a href="#">stayaway.com.co</a>
+      </div>
     </div>
   </div>
 </body>
@@ -1365,188 +1447,232 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { 
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-      line-height: 1.6; 
-      color: #333333; 
-      background-color: #f5f5f5;
-      margin: 0;
-      padding: 0;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333333;
+      background: linear-gradient(135deg, #f7f9fc 0%, #CFDEE7 100%);
+      padding: 20px;
     }
-    .container { 
-      max-width: 600px; 
-      margin: 30px auto; 
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
       background: #ffffff;
-      border-radius: 12px;
+      border-radius: 20px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 18px 45px rgba(10, 54, 157, 0.18);
     }
-    .header { 
-      background: linear-gradient(135deg, #c8a951 0%, #dfc77a 100%); 
-      color: #ffffff; 
-      padding: 40px 30px; 
+    .header {
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
+      color: #ffffff;
+      padding: 40px 30px;
       text-align: center;
     }
     .header h1 {
       margin: 0 0 10px 0;
       font-size: 28px;
-      font-weight: 700;
+      font-weight: 800;
+      letter-spacing: 0.04em;
     }
     .header p {
       margin: 0;
       font-size: 16px;
-      opacity: 0.95;
+      opacity: 0.92;
     }
-    .content { 
+    .content {
       padding: 40px 30px;
     }
-    .content h2 {
-      color: #1a1a1a;
+    .greeting {
+      color: #0A369D;
       font-size: 22px;
-      margin: 0 0 20px 0;
+      font-weight: 800;
+      margin-bottom: 14px;
     }
-    .content p {
-      color: #555555;
+    .intro-text {
+      color: #4a4a4a;
       font-size: 15px;
-      margin: 15px 0;
+      line-height: 1.7;
+      margin-bottom: 28px;
     }
     .winner-box {
-      background: linear-gradient(135deg, #fff9e6 0%, #ffffff 100%);
-      border: 2px solid #c8a951;
-      border-radius: 12px;
-      padding: 25px;
+      background: linear-gradient(135deg, #f0f4ff 0%, #ffffff 100%);
+      border: 2px solid #0A369D;
+      border-radius: 16px;
+      padding: 28px;
       text-align: center;
-      margin: 25px 0;
+      margin: 26px 0;
+      box-shadow: 0 10px 25px rgba(10, 54, 157, 0.10);
     }
     .winner-box h3 {
-      color: #c8a951;
-      margin: 0 0 15px 0;
-      font-size: 18px;
+      color: #0A369D;
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
     .winner-number {
-      font-size: 36px;
+      font-size: 40px;
       font-weight: 900;
-      color: #c8a951;
+      color: #0A369D;
       font-family: 'Courier New', monospace;
-      margin: 15px 0;
-      letter-spacing: 2px;
+      margin: 14px 0;
+      letter-spacing: 3px;
     }
     .info-box {
-      background: #f8f9fa;
-      border-left: 4px solid #c8a951;
-      padding: 25px;
-      border-radius: 8px;
-      margin: 25px 0;
+      background: #f5f7fb;
+      border-left: 5px solid #0A369D;
+      padding: 24px;
+      border-radius: 14px;
+      margin: 26px 0;
     }
     .info-box h3 {
-      color: #c8a951;
-      font-size: 18px;
-      margin: 0 0 15px 0;
-      font-weight: 600;
+      color: #0A369D;
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 16px;
     }
     .info-row {
       display: flex;
       justify-content: space-between;
-      padding: 10px 0;
-      border-bottom: 1px solid #e0e0e0;
+      padding: 11px 0;
+      border-bottom: 1px solid #CFDEE7;
     }
-    .info-row:last-child {
-      border-bottom: none;
-    }
+    .info-row:last-child { border-bottom: none; }
     .info-label {
-      color: #666666;
+      color: #5a6370;
       font-weight: 600;
+      font-size: 14px;
     }
     .info-value {
-      color: #1a1a1a;
+      color: #0A369D;
       font-weight: 700;
+      font-size: 14px;
     }
     .numbers-section {
-      margin: 30px 0;
+      margin: 28px 0;
     }
     .numbers-section h3 {
-      color: #1a1a1a;
-      font-size: 18px;
-      margin: 0 0 15px 0;
-    }
-    .numbers-grid { 
-      display: grid; 
-      grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); 
-      gap: 8px; 
-      margin: 15px 0;
-    }
-    .number { 
-      background: #f8f9fa;
-      border: 2px solid #e0e0e0; 
-      border-radius: 6px; 
-      padding: 10px; 
-      text-align: center; 
-      font-weight: 600; 
-      font-size: 14px;
-      color: #666666;
-      font-family: 'Courier New', monospace;
-    }
-    .thanks-box {
-      background: #e8f5e9;
-      border: 2px solid #4caf50;
-      border-radius: 8px;
-      padding: 25px;
-      text-align: center;
-      margin: 25px 0;
-    }
-    .thanks-box p {
-      color: #2e7d32;
-      font-weight: 600;
+      color: #0A369D;
       font-size: 16px;
-      margin: 0;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 16px;
+      text-align: center;
     }
-    .footer { 
-      background: #1a1a1a;
-      color: #ffffff;
-      text-align: center; 
-      padding: 30px;
+    .numbers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+      gap: 10px;
+      margin: 16px 0;
     }
-    .footer p {
-      margin: 10px 0;
+    .number {
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
+      border-radius: 10px;
+      padding: 12px;
+      text-align: center;
+      font-weight: 700;
       font-size: 14px;
-      color: #cccccc;
+      color: #ffffff;
+      font-family: 'Courier New', monospace;
+      box-shadow: 0 4px 12px rgba(10, 54, 157, 0.20);
     }
-    .footer a {
-      color: #c8a951;
-      text-decoration: none;
+    .more-numbers {
+      text-align: center;
+      color: #5a6370;
+      font-size: 13px;
+      margin-top: 10px;
     }
     .divider {
       height: 1px;
-      background: #e0e0e0;
-      margin: 30px 0;
+      background: #CFDEE7;
+      margin: 28px 0;
+    }
+    .thanks-box {
+      background: #f0f4ff;
+      border: 2px solid #CFDEE7;
+      border-radius: 14px;
+      padding: 24px;
+      text-align: center;
+      margin: 26px 0;
+    }
+    .thanks-box p {
+      color: #0A369D;
+      font-weight: 600;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .closing-note {
+      color: #5a6370;
+      font-size: 14px;
+      text-align: center;
+      line-height: 1.7;
+      margin-top: 10px;
+    }
+    .footer {
+      background: #0A369D;
+      color: #ffffff;
+      text-align: center;
+      padding: 28px 30px;
+    }
+    .footer .brand {
+      font-weight: 800;
+      font-size: 16px;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+    .footer p {
+      margin: 4px 0;
+      font-size: 13px;
+      opacity: 0.85;
+    }
+    .footer a {
+      color: #92B4F4;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .footer .social-links {
+      margin-top: 16px;
+    }
+    .footer .social-links a {
+      margin: 0 10px;
     }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>Rifa Sorteada</h1>
+      <h1>🎯 Rifa Sorteada</h1>
       <p>Resultados oficiales del sorteo</p>
     </div>
-    
+
     <div class="content">
-      <h2>Estimado/a ${usuario.nombres} ${usuario.apellidos},</h2>
-      <p>Te informamos que el sorteo de la rifa en la que participaste ha sido realizado exitosamente. A continuación te presentamos los resultados oficiales:</p>
-      
+      <h2 class="greeting">Estimado/a ${usuario.nombres} ${usuario.apellidos},</h2>
+      <p class="intro-text">
+        Te informamos que el sorteo de la rifa en la que participaste ha sido realizado exitosamente.
+        A continuación te presentamos los resultados oficiales:
+      </p>
+
       <div class="winner-box">
-        <h3>Número Ganador</h3>
+        <h3>🏆 Número Ganador</h3>
         <div class="winner-number">#${numeroGanador}</div>
       </div>
 
       <div class="info-box">
-        <h3>Información del Sorteo</h3>
+        <h3>📋 Información del Sorteo</h3>
         <div class="info-row">
           <span class="info-label">Rifa:</span>
           <span class="info-value">${rifa.titulo}</span>
         </div>
         <div class="info-row">
           <span class="info-label">Fecha del sorteo:</span>
-          <span class="info-value">${new Date(rifa.fecha_sorteo).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+          <span class="info-value">${new Date(rifa.fecha_sorteo).toLocaleDateString('es-CO', {
+            year: 'numeric', month: 'long', day: 'numeric'
+          })}</span>
         </div>
         ${loteriaReferencia ? `
         <div class="info-row">
@@ -1557,28 +1683,35 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
       </div>
 
       <div class="numbers-section">
-        <h3>Tus Números Participantes</h3>
+        <h3>🎯 Tus Números Participantes</h3>
         <div class="numbers-grid">
           ${numerosUsuario.slice(0, 20).map(numero => `<div class="number">#${numero}</div>`).join('')}
         </div>
-        ${numerosUsuario.length > 20 ? `<p style="text-align: center; color: #666666; font-size: 14px;">Y ${numerosUsuario.length - 20} números más...</p>` : ''}
+        ${numerosUsuario.length > 20
+          ? `<p class="more-numbers">Y ${numerosUsuario.length - 20} números más...</p>`
+          : ''}
       </div>
 
       <div class="divider"></div>
 
       <div class="thanks-box">
-        <p>Gracias por tu participación. Te invitamos a estar atento a nuestras próximas rifas.</p>
+        <p>🙌 Gracias por tu participación. Te invitamos a estar atento a nuestras próximas rifas.</p>
       </div>
 
-      <p style="color: #666666; font-size: 14px; text-align: center;">
+      <p class="closing-note">
         Puedes seguir nuestras redes sociales para enterarte de futuros sorteos y promociones especiales.
       </p>
     </div>
-    
+
     <div class="footer">
-      <p style="font-weight: 600; font-size: 16px; color: #c8a951;">StayAway Rifas</p>
+      <p class="brand">StayAway Rifas</p>
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
       <p>Contacto: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
+      <div class="social-links">
+        <a href="#">Instagram</a>
+        <a href="#">WhatsApp</a>
+        <a href="#">stayaway.com.co</a>
+      </div>
     </div>
   </div>
 </body>
@@ -1661,198 +1794,256 @@ const generarTemplateSorteoDesierto = (
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { 
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-      line-height: 1.6; 
-      color: #333333; 
-      background-color: #f5f5f5;
-      margin: 0;
-      padding: 0;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333333;
+      background: linear-gradient(135deg, #f7f9fc 0%, #CFDEE7 100%);
+      padding: 20px;
     }
-    .container { 
-      max-width: 600px; 
-      margin: 30px auto; 
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
       background: #ffffff;
-      border-radius: 12px;
+      border-radius: 20px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 18px 45px rgba(10, 54, 157, 0.18);
     }
-    .header { 
-      background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); 
-      color: #ffffff; 
-      padding: 40px 30px; 
+    .header {
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
+      color: #ffffff;
+      padding: 40px 30px;
       text-align: center;
     }
     .header h1 {
       margin: 0 0 10px 0;
       font-size: 28px;
-      font-weight: 700;
+      font-weight: 800;
+      letter-spacing: 0.04em;
     }
     .header p {
       margin: 0;
       font-size: 16px;
-      opacity: 0.95;
+      opacity: 0.92;
     }
-    .content { 
+    .content {
       padding: 40px 30px;
     }
-    .content h2 {
-      color: #1a1a1a;
+    .greeting {
+      color: #0A369D;
       font-size: 22px;
-      margin: 0 0 20px 0;
+      font-weight: 800;
+      margin-bottom: 14px;
     }
-    .content p {
-      color: #555555;
+    .intro-text {
+      color: #4a4a4a;
       font-size: 15px;
-      margin: 15px 0;
+      line-height: 1.7;
+      margin-bottom: 28px;
     }
     .alert-box {
-      background: #fff3cd;
-      border: 2px solid #ffc107;
-      border-radius: 12px;
-      padding: 25px;
-      margin: 25px 0;
+      background: #f0f4ff;
+      border: 2px solid #CFDEE7;
+      border-radius: 16px;
+      padding: 26px;
+      margin: 26px 0;
+      text-align: center;
     }
     .alert-box h3 {
-      color: #856404;
-      font-size: 18px;
-      margin: 0 0 15px 0;
-      font-weight: 600;
+      color: #0A369D;
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 14px;
     }
     .alert-box p {
-      color: #856404;
-      margin: 10px 0;
+      color: #5a6370;
+      font-size: 14px;
+      margin-top: 12px;
+      line-height: 1.6;
     }
     .numero-sorteado {
-      font-size: 36px;
+      font-size: 44px;
       font-weight: 900;
-      color: #ff9800;
+      color: #0A369D;
       font-family: 'Courier New', monospace;
-      text-align: center;
-      margin: 20px 0;
-      letter-spacing: 2px;
+      margin: 14px 0;
+      letter-spacing: 3px;
     }
     .new-date-box {
-      background: linear-gradient(135deg, #e8f5e9 0%, #f1f8f4 100%);
-      border: 2px solid #4caf50;
-      border-radius: 12px;
-      padding: 25px;
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
+      border-radius: 16px;
+      padding: 26px;
       text-align: center;
-      margin: 25px 0;
+      margin: 26px 0;
+      box-shadow: 0 10px 25px rgba(10, 54, 157, 0.35);
+      color: #ffffff;
     }
     .new-date-box h3 {
-      color: #4caf50;
-      font-size: 18px;
-      margin: 0 0 15px 0;
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 12px;
+      opacity: 0.92;
+    }
+    .new-date-box p {
+      font-size: 14px;
+      opacity: 0.85;
+      margin-bottom: 10px;
     }
     .new-date {
-      font-size: 20px;
-      font-weight: 700;
-      color: #2e7d32;
-      margin: 15px 0;
+      font-size: 22px;
+      font-weight: 800;
+      color: #ffffff;
+      margin: 10px 0 0;
+      letter-spacing: 0.02em;
     }
     .info-box {
-      background: #f8f9fa;
-      border-left: 4px solid #ff9800;
-      padding: 25px;
-      border-radius: 8px;
-      margin: 25px 0;
+      background: #f5f7fb;
+      border-left: 5px solid #0A369D;
+      padding: 24px;
+      border-radius: 14px;
+      margin: 26px 0;
     }
     .info-box h3 {
-      color: #ff9800;
-      font-size: 18px;
-      margin: 0 0 15px 0;
-      font-weight: 600;
+      color: #0A369D;
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 16px;
     }
     .info-row {
       display: flex;
       justify-content: space-between;
-      padding: 10px 0;
-      border-bottom: 1px solid #e0e0e0;
+      padding: 11px 0;
+      border-bottom: 1px solid #CFDEE7;
     }
-    .info-row:last-child {
-      border-bottom: none;
-    }
+    .info-row:last-child { border-bottom: none; }
     .info-label {
-      color: #666666;
+      color: #5a6370;
       font-weight: 600;
+      font-size: 14px;
     }
     .info-value {
-      color: #1a1a1a;
+      color: #0A369D;
       font-weight: 700;
+      font-size: 14px;
     }
     .numbers-section {
-      margin: 30px 0;
+      margin: 28px 0;
     }
     .numbers-section h3 {
-      color: #1a1a1a;
-      font-size: 18px;
-      margin: 0 0 15px 0;
+      color: #0A369D;
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 16px;
+      text-align: center;
     }
-    .numbers-grid { 
-      display: grid; 
-      grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); 
-      gap: 8px; 
-      margin: 15px 0;
+    .numbers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+      gap: 10px;
+      margin: 16px 0;
     }
-    .number { 
-      background: #f8f9fa;
-      border: 2px solid #e0e0e0; 
-      border-radius: 6px; 
-      padding: 10px; 
-      text-align: center; 
-      font-weight: 600; 
+    .number {
+      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
+      border-radius: 10px;
+      padding: 12px;
+      text-align: center;
+      font-weight: 700;
       font-size: 14px;
-      color: #666666;
-      font-family: 'Courier New', monospace;
-    }
-    .footer { 
-      background: #1a1a1a;
       color: #ffffff;
-      text-align: center; 
-      padding: 30px;
+      font-family: 'Courier New', monospace;
+      box-shadow: 0 4px 12px rgba(10, 54, 157, 0.20);
     }
-    .footer p {
-      margin: 10px 0;
-      font-size: 14px;
-      color: #cccccc;
-    }
-    .footer a {
-      color: #c8a951;
-      text-decoration: none;
+    .more-numbers {
+      text-align: center;
+      color: #5a6370;
+      font-size: 13px;
+      margin-top: 10px;
     }
     .divider {
       height: 1px;
-      background: #e0e0e0;
-      margin: 30px 0;
+      background: #CFDEE7;
+      margin: 28px 0;
+    }
+    .lucky-note {
+      color: #0A369D;
+      font-weight: 700;
+      text-align: center;
+      font-size: 15px;
+      margin-bottom: 10px;
+    }
+    .closing-note {
+      color: #5a6370;
+      font-size: 14px;
+      text-align: center;
+      line-height: 1.7;
+    }
+    .footer {
+      background: #0A369D;
+      color: #ffffff;
+      text-align: center;
+      padding: 28px 30px;
+    }
+    .footer .brand {
+      font-weight: 800;
+      font-size: 16px;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+    .footer p {
+      margin: 4px 0;
+      font-size: 13px;
+      opacity: 0.85;
+    }
+    .footer a {
+      color: #92B4F4;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .footer .social-links {
+      margin-top: 16px;
+    }
+    .footer .social-links a {
+      margin: 0 10px;
     }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>Sorteo Sin Ganador</h1>
+      <h1>⚠️ Sorteo Sin Ganador</h1>
       <p>Información importante sobre el sorteo</p>
     </div>
-    
+
     <div class="content">
-      <h2>Estimado/a ${usuario.nombres} ${usuario.apellidos},</h2>
-      <p>Te informamos que se ha realizado el sorteo de la rifa en la que participaste. Sin embargo, el número sorteado no fue adquirido por ningún participante.</p>
-      
+      <h2 class="greeting">Estimado/a ${usuario.nombres} ${usuario.apellidos},</h2>
+      <p class="intro-text">
+        Te informamos que se ha realizado el sorteo de la rifa en la que participaste.
+        Sin embargo, el número sorteado no fue adquirido por ningún participante.
+      </p>
+
       <div class="alert-box">
-        <h3>Número Sorteado (No Vendido)</h3>
+        <h3>⚡ Número Sorteado (No Vendido)</h3>
         <div class="numero-sorteado">#${numeroSorteado}</div>
         <p>Este número no tiene comprador asignado, por lo que se procederá a un nuevo sorteo.</p>
       </div>
 
       <div class="new-date-box">
-        <h3>Nuevo Sorteo Programado</h3>
+        <h3>Sorteo Reprogramado</h3>
         <p>La nueva fecha para el sorteo es:</p>
         <div class="new-date">${fechaFormateada}</div>
       </div>
 
       <div class="info-box">
-        <h3>Información del Sorteo</h3>
+        <h3>📋 Información del Sorteo</h3>
         <div class="info-row">
           <span class="info-label">Rifa:</span>
           <span class="info-value">${rifa.titulo}</span>
@@ -1870,28 +2061,34 @@ const generarTemplateSorteoDesierto = (
       </div>
 
       <div class="numbers-section">
-        <h3>Tus Números Siguen Participando</h3>
+        <h3>🎯 Tus Números Siguen Participando</h3>
         <div class="numbers-grid">
           ${numerosUsuario.slice(0, 20).map(numero => `<div class="number">#${numero}</div>`).join('')}
         </div>
-        ${numerosUsuario.length > 20 ? `<p style="text-align: center; color: #666666; font-size: 14px;">Y ${numerosUsuario.length - 20} números más...</p>` : ''}
+        ${numerosUsuario.length > 20
+          ? `<p class="more-numbers">Y ${numerosUsuario.length - 20} números más...</p>`
+          : ''}
       </div>
 
       <div class="divider"></div>
 
-      <p style="color: #2e7d32; font-weight: 600; text-align: center; font-size: 16px;">
-        Tus números siguen activos y participarán en el nuevo sorteo programado. ¡Mucha suerte!
+      <p class="lucky-note">
+        🍀 Tus números siguen activos y participarán en el nuevo sorteo programado. ¡Mucha suerte!
       </p>
-
-      <p style="color: #666666; font-size: 14px; text-align: center;">
+      <p class="closing-note">
         Estaremos atentos para informarte sobre los resultados del nuevo sorteo.
       </p>
     </div>
-    
+
     <div class="footer">
-      <p style="font-weight: 600; font-size: 16px; color: #c8a951;">StayAway Rifas</p>
+      <p class="brand">StayAway Rifas</p>
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
       <p>Contacto: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
+      <div class="social-links">
+        <a href="#">Instagram</a>
+        <a href="#">WhatsApp</a>
+        <a href="#">stayaway.com.co</a>
+      </div>
     </div>
   </div>
 </body>
