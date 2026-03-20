@@ -639,17 +639,17 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
 
 
 /**
- * Asignar números aleatorios - CON FORMATEO DINÁMICO
+ * ✅ Asignar números atómicos via RPC — previene race conditions
  */
 const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocumento, referenciaTransaccion, cantidadNumerosRifa) => {
   try {
-    console.log(`🔍 Buscando ${cantidad} números disponibles para rifa ${rifaId}...`);
-    
+    console.log(`🔍 Asignando ${cantidad} números para rifa ${rifaId} via RPC atómico...`);
+
     // ✅ CALCULAR DÍGITOS DINÁMICAMENTE
     const digitosFormato = calcularDigitos(cantidadNumerosRifa);
-    console.log(`📏 Formato: ${digitosFormato} dígitos (Rifa de ${cantidadNumerosRifa.toLocaleString()} números: 0-${(cantidadNumerosRifa - 1).toLocaleString()})`);
-    
-    // ✅ VERIFICACIÓN ANTI-DUPLICACIÓN
+    console.log(`📏 Formato: ${digitosFormato} dígitos`);
+
+    // ✅ VERIFICACIÓN ANTI-DUPLICACIÓN EN MEMORIA
     const procesamientoKey = `asignacion-${referenciaTransaccion}`;
     if (transaccionesProcesando.has(procesamientoKey)) {
       console.log(`⚠️ Esta transacción ya se está procesando. Ignorando duplicado.`);
@@ -659,70 +659,35 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
     transaccionesProcesando.add(procesamientoKey);
 
     try {
-      // ✅ OBTENER TODOS LOS NÚMEROS DISPONIBLES
-      let allNumerosDisponibles = [];
-      let from = 0;
-      const batchSize = 1000;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data: batch, error: disponiblesError } = await supabaseAdmin
-          .from("numeros")
-          .select("id, numero")
-          .eq("rifa_id", rifaId)
-          .is("comprado_por", null)
-          .range(from, from + batchSize - 1);
-
-        if (disponiblesError) throw disponiblesError;
-
-        if (batch && batch.length > 0) {
-          allNumerosDisponibles = [...allNumerosDisponibles, ...batch];
-          from += batchSize;
-        } else {
-          hasMore = false;
+      // ✅ LLAMADA RPC ATÓMICA — SELECT + UPDATE en una sola transacción
+      const { data: numerosData, error: rpcError } = await supabaseAdmin.rpc(
+        'asignar_numeros_atomico',
+        {
+          p_rifa_id:    rifaId,
+          p_cantidad:   cantidad,
+          p_usuario_id: usuarioId,
+          p_documento:  numeroDocumento
         }
+      );
+
+      if (rpcError) {
+        console.error('❌ Error en RPC asignar_numeros_atomico:', rpcError);
+        throw rpcError;
       }
 
-      console.log(`🎯 TOTAL números disponibles encontrados: ${allNumerosDisponibles.length}`);
-
-      if (allNumerosDisponibles.length < cantidad) {
-        throw new Error(`No hay suficientes números disponibles. Solicitados: ${cantidad}, Disponibles: ${allNumerosDisponibles.length}`);
+      if (!numerosData || numerosData.length === 0) {
+        throw new Error('No se pudieron asignar números. No hay suficientes disponibles.');
       }
 
-      // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA
-      const mezclarArray = (array) => {
-        const shuffled = [...array];
-        for (let i = shuffled.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-        }
-        return shuffled;
-      };
+      console.log(`✅ ${numerosData.length} números asignados atómicamente`);
 
-      const numerosMezclados = mezclarArray(allNumerosDisponibles);
-      const seleccionados = numerosMezclados.slice(0, cantidad);
-      const numerosIds = seleccionados.map(n => n.id);
-      const numerosValores = seleccionados.map(n => n.numero);
+      // ✅ FORMATEAR NÚMEROS CON CEROS A LA IZQUIERDA
+      const numerosFormateados = numerosData.map(row =>
+        formatearNumero(row.numero_asignado, digitosFormato)
+      );
 
-      console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE`);
-
-      // ✅ ACTUALIZAR TABLA 'numeros' CON LA ASIGNACIÓN
-      const { error: updateError } = await supabaseAdmin
-        .from("numeros")
-        .update({
-          comprado_por: numeroDocumento,
-          usuario_id: usuarioId
-        })
-        .in("id", numerosIds);
-
-      if (updateError) throw updateError;
-
-      console.log(`✅ ${cantidad} números asignados correctamente`);
-      
-      // ✅ FORMATEAR NÚMEROS CON CEROS A LA IZQUIERDA (DINÁMICO)
-      const numerosFormateados = numerosValores.map(num => formatearNumero(num, digitosFormato));
       console.log(`🎨 Números formateados: ${numerosFormateados.slice(0, 3).join(', ')}... (${digitosFormato} dígitos)`);
-      
+
       return numerosFormateados;
 
     } finally {
@@ -730,7 +695,7 @@ const asignarNumerosAleatorios = async (rifaId, cantidad, usuarioId, numeroDocum
     }
 
   } catch (error) {
-    console.error("❌ Error asignando números:", error);
+    console.error('❌ Error asignando números:', error);
     throw error;
   }
 };

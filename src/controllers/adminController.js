@@ -335,108 +335,53 @@ export const asignarNumerosDirecto = async (req, res) => {
 };
 
 /**
- * ✅ Función auxiliar para asignar números VERDADERAMENTE aleatorios
- * Con formateo dinámico según la cantidad de números de la rifa
+ * ✅ Asignar números atómicos via RPC — admin directo
  */
 const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numeroDocumento, cantidadNumerosRifa) => {
   try {
-    console.log(`🔍 Buscando ${cantidad} números disponibles para rifa ${rifaId}...`);
-    
+    console.log(`🔍 Asignando ${cantidad} números para rifa ${rifaId} via RPC atómico (admin)...`);
+
     // ✅ CALCULAR DÍGITOS DINÁMICAMENTE
     const digitosFormato = calcularDigitos(cantidadNumerosRifa);
-    console.log(`📏 Formato de números: ${digitosFormato} dígitos (Rifa de ${cantidadNumerosRifa.toLocaleString()} números: 0-${(cantidadNumerosRifa - 1).toLocaleString()})`);
-    
-    // ✅ OBTENER TODOS LOS NÚMEROS DISPONIBLES
-    let allNumerosDisponibles = [];
-    let from = 0;
-    const batchSize = 1000;
-    let hasMore = true;
+    console.log(`📏 Formato: ${digitosFormato} dígitos (Rifa de ${cantidadNumerosRifa.toLocaleString()} números)`);
 
-    while (hasMore) {
-      const { data: batch, error: disponiblesError } = await supabaseAdmin
-        .from("numeros")
-        .select("id, numero")
-        .eq("rifa_id", rifaId)
-        .is("comprado_por", null)
-        .range(from, from + batchSize - 1);
-
-      if (disponiblesError) {
-        console.error("❌ Error obteniendo lote de números:", disponiblesError);
-        throw disponiblesError;
+    // ✅ LLAMADA RPC ATÓMICA
+    const { data: numerosData, error: rpcError } = await supabaseAdmin.rpc(
+      'asignar_numeros_atomico',
+      {
+        p_rifa_id:    rifaId,
+        p_cantidad:   cantidad,
+        p_usuario_id: usuarioId,
+        p_documento:  numeroDocumento
       }
+    );
 
-      if (batch && batch.length > 0) {
-        allNumerosDisponibles = [...allNumerosDisponibles, ...batch];
-        from += batchSize;
-      } else {
-        hasMore = false;
-      }
+    if (rpcError) {
+      console.error('❌ Error en RPC asignar_numeros_atomico (admin):', rpcError);
+      throw rpcError;
     }
 
-    console.log(`🎯 TOTAL números disponibles encontrados: ${allNumerosDisponibles.length.toLocaleString()}`);
-
-    if (allNumerosDisponibles.length < cantidad) {
-      throw new Error(`No hay suficientes números disponibles. Solicitados: ${cantidad}, Disponibles: ${allNumerosDisponibles.length}`);
+    if (!numerosData || numerosData.length === 0) {
+      throw new Error(`No se pudieron asignar números. Solicitados: ${cantidad}, disponibles insuficientes.`);
     }
 
-    // ✅ SELECCIÓN VERDADERAMENTE ALEATORIA (FISHER-YATES SHUFFLE)
-    const mezclarArray = (array) => {
-      const shuffled = [...array];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-      return shuffled;
-    };
+    console.log(`✅ ${numerosData.length} números asignados atómicamente (admin)`);
 
-    const numerosMezclados = mezclarArray(allNumerosDisponibles);
-    const seleccionados = numerosMezclados.slice(0, cantidad);
-    const numerosIds = seleccionados.map(n => n.id);
-    const numerosValores = seleccionados.map(n => n.numero);
+    // ✅ FORMATEAR NÚMEROS CON CEROS A LA IZQUIERDA
+    const numerosFormateados = numerosData.map(row =>
+      formatearNumero(row.numero_asignado, digitosFormato)
+    );
 
-    // ✅ MOSTRAR DISTRIBUCIÓN PARA VERIFICACIÓN
-    const numerosOrdenados = [...numerosValores].sort((a, b) => a - b);
-    console.log(`🎲 ${cantidad} números seleccionados ALEATORIAMENTE:`);
-    console.log(`   - Mínimo: ${numerosOrdenados[0].toLocaleString()}`);
-    console.log(`   - Máximo: ${numerosOrdenados[numerosOrdenados.length - 1].toLocaleString()}`);
-    console.log(`   - Primeros 5: [${numerosOrdenados.slice(0, 5).join(', ')}]`);
-    
-    if (numerosOrdenados.length > 1) {
-      let sumaDiferencias = 0;
-      for (let i = 1; i < numerosOrdenados.length; i++) {
-        sumaDiferencias += numerosOrdenados[i] - numerosOrdenados[i - 1];
-      }
-      const dispersionPromedio = Math.floor(sumaDiferencias / (numerosOrdenados.length - 1));
-      console.log(`   - Dispersión promedio: ${dispersionPromedio.toLocaleString()} (${dispersionPromedio > 1000 ? '✅ Bien distribuido' : '⚠️ Agrupados'})`);
-    }
+    console.log(`🎨 Números formateados: ${numerosFormateados.slice(0, 3).join(', ')}...`);
 
-    // ✅ ACTUALIZAR TABLA 'numeros' CON LA ASIGNACIÓN
-    const { error: updateError } = await supabaseAdmin
-      .from("numeros")
-      .update({
-        comprado_por: numeroDocumento,
-        usuario_id: usuarioId
-      })
-      .in("id", numerosIds);
-
-    if (updateError) {
-      console.error("❌ Error actualizando números:", updateError);
-      throw updateError;
-    }
-
-    console.log(`✅ ${cantidad} números asignados correctamente en la base de datos`);
-    
-    // ✅ FORMATEAR NÚMEROS CON CEROS A LA IZQUIERDA (DINÁMICO)
-    const numerosFormateados = numerosValores.map(num => formatearNumero(num, digitosFormato));
-    console.log(`🎨 Números formateados: ${numerosFormateados.slice(0, 3).join(', ')}... (${digitosFormato} dígitos)`);
-    
     return numerosFormateados;
 
   } catch (error) {
-    console.error("❌ Error asignando números (admin):", error);
+    console.error('❌ Error asignando números (admin):', error);
     throw error;
   }
 };
+
 /**
  * ✅ REGISTRAR USUARIO MANUAL (Admin) - Para ventas por WhatsApp / Efectivo
  * Crea el usuario en la BD con contraseña generada automáticamente
