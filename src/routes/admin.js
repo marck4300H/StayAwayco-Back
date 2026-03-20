@@ -1,5 +1,5 @@
 import express from "express";
-import { loginAdmin, asignarNumerosDirecto } from "../controllers/adminController.js";
+import { loginAdmin, asignarNumerosDirecto, registrarUsuarioManual } from "../controllers/adminController.js";
 import { verificarAdmin } from "../middleware/authAdmin.js";
 import { sortearRifa, obtenerGanador, notificarSorteoDesierto } from "../controllers/sorteoController.js";
 
@@ -7,6 +7,9 @@ const router = express.Router();
 
 // POST /api/admin/login
 router.post("/login", loginAdmin);
+
+// POST /api/admin/registrar-usuario - Registrar usuario manualmente (SOLO ADMIN)
+router.post("/registrar-usuario", verificarAdmin, registrarUsuarioManual);
 
 // POST /api/admin/asignar-numeros - Asignación directa de números (SOLO ADMIN)
 router.post("/asignar-numeros", verificarAdmin, asignarNumerosDirecto);

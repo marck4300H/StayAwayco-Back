@@ -437,3 +437,178 @@ const asignarNumerosAleatoriosAdmin = async (rifaId, cantidad, usuarioId, numero
     throw error;
   }
 };
+/**
+ * ✅ REGISTRAR USUARIO MANUAL (Admin) - Para ventas por WhatsApp / Efectivo
+ * Crea el usuario en la BD con contraseña generada automáticamente
+ * y opcionalmente le envía un correo de bienvenida con sus credenciales
+ */
+export const registrarUsuarioManual = async (req, res) => {
+  try {
+    const {
+      nombres,
+      apellidos,
+      correo_electronico,
+      numero_documento,
+      tipo_documento,
+      telefono,
+      ciudad,
+      departamento,
+      direccion,
+      enviar_correo // boolean opcional, default true
+    } = req.body;
+
+    console.log("👤 Registro manual de usuario por admin:", req.admin.email);
+    console.log("📝 Datos recibidos:", { nombres, apellidos, correo_electronico, numero_documento, tipo_documento });
+
+    // ✅ VALIDACIONES OBLIGATORIAS
+    if (!nombres || !apellidos || !correo_electronico || !numero_documento || !tipo_documento) {
+      return res.status(400).json({
+        success: false,
+        message: "Faltan campos obligatorios: nombres, apellidos, correo_electronico, numero_documento, tipo_documento"
+      });
+    }
+
+    // ✅ VALIDAR TIPO DE DOCUMENTO
+    const tiposValidos = ['CC', 'CE', 'TI', 'PA'];
+    if (!tiposValidos.includes(tipo_documento)) {
+      return res.status(400).json({
+        success: false,
+        message: `tipo_documento inválido. Valores aceptados: ${tiposValidos.join(', ')}`
+      });
+    }
+
+    // ✅ VALIDAR FORMATO DE CORREO BÁSICO
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(correo_electronico)) {
+      return res.status(400).json({
+        success: false,
+        message: "El correo electrónico no tiene un formato válido"
+      });
+    }
+
+    const emailLower = correo_electronico.toLowerCase().trim();
+
+    // ✅ VERIFICAR QUE EL CORREO NO ESTÉ EN USO
+    const { data: correoExistente } = await supabaseAdmin
+      .from("usuarios")
+      .select("id")
+      .eq("correo_electronico", emailLower)
+      .single();
+
+    if (correoExistente) {
+      return res.status(409).json({
+        success: false,
+        message: "Ya existe un usuario registrado con ese correo electrónico"
+      });
+    }
+
+    // ✅ VERIFICAR QUE EL DOCUMENTO NO ESTÉ EN USO
+    const { data: documentoExistente } = await supabaseAdmin
+      .from("usuarios")
+      .select("id")
+      .eq("numero_documento", numero_documento)
+      .single();
+
+    if (documentoExistente) {
+      return res.status(409).json({
+        success: false,
+        message: "Ya existe un usuario registrado con ese número de documento"
+      });
+    }
+
+    // ✅ GENERAR CONTRASEÑA ALEATORIA SEGURA
+    const generarPassword = () => {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
+      let password = '';
+      for (let i = 0; i < 10; i++) {
+        password += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return password;
+    };
+
+    const passwordPlana = generarPassword();
+    const passwordHash = await bcrypt.hash(passwordPlana, 10);
+
+    console.log("🔐 Contraseña generada para el usuario (no se loguea por seguridad)");
+
+    // ✅ CREAR USUARIO EN LA BD
+    const { data: nuevoUsuario, error: insertError } = await supabaseAdmin
+      .from("usuarios")
+      .insert([{
+        nombres: nombres.trim(),
+        apellidos: apellidos.trim(),
+        correo_electronico: emailLower,
+        numero_documento: numero_documento.trim(),
+        tipo_documento,
+        telefono: telefono?.trim() || null,
+        ciudad: ciudad?.trim() || null,
+        departamento: departamento?.trim() || null,
+        direccion: direccion?.trim() || null,
+        password: passwordHash
+      }])
+      .select("id, nombres, apellidos, correo_electronico, numero_documento, tipo_documento, telefono, ciudad, departamento, created_at")
+      .single();
+
+    if (insertError) {
+      console.error("❌ Error creando usuario:", insertError);
+
+      // Mensajes de error amigables para violaciones de constraint
+      if (insertError.code === '23505') {
+        const campo = insertError.message.includes('correo') ? 'correo electrónico' : 'número de documento';
+        return res.status(409).json({
+          success: false,
+          message: `Ya existe un usuario con ese ${campo}`
+        });
+      }
+
+      throw insertError;
+    }
+
+    console.log(`✅ Usuario creado exitosamente: ${nuevoUsuario.id}`);
+
+    // ✅ ENVIAR CORREO DE BIENVENIDA CON CREDENCIALES (por defecto sí envía)
+    const debeEnviarCorreo = enviar_correo !== false; // solo se omite si explícitamente es false
+    let correoEnviado = false;
+
+    if (debeEnviarCorreo) {
+      try {
+        const { enviarCorreoBienvenida } = await import('../services/emailService.js');
+        const resultadoCorreo = await enviarCorreoBienvenida(nuevoUsuario, passwordPlana);
+        correoEnviado = resultadoCorreo.success;
+
+        if (correoEnviado) {
+          console.log("📧 Correo de bienvenida enviado con credenciales");
+        } else {
+          console.warn("⚠️ No se pudo enviar el correo de bienvenida");
+        }
+      } catch (emailError) {
+        console.error("⚠️ Error enviando correo de bienvenida (no crítico):", emailError.message);
+      }
+    }
+
+    // ✅ RESPUESTA EXITOSA
+    res.status(201).json({
+      success: true,
+      message: `Usuario ${nuevoUsuario.nombres} ${nuevoUsuario.apellidos} registrado exitosamente`,
+      data: {
+        usuario: nuevoUsuario,
+        credenciales: {
+          correo_electronico: nuevoUsuario.correo_electronico,
+          // Solo devolver password si NO se envió correo, para que el admin la comparta manualmente
+          ...((!correoEnviado) && { password_temporal: passwordPlana })
+        },
+        correo_enviado: correoEnviado,
+        registrado_por: req.admin.email,
+        fecha_registro: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error en registrarUsuarioManual:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor al registrar usuario",
+      error: error.message
+    });
+  }
+};
