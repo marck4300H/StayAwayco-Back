@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import PDFDocument from 'pdfkit';
+import { supabaseAdmin } from "../../supabaseAdminClient.js";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
