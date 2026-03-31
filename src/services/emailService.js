@@ -48,15 +48,37 @@ const inicializarResend = async () => {
 // Inicializar Resend
 inicializarResend();
 /**
- * 📄 Generar PDF profesional con los números del usuario
- * Incluye: datos del usuario, números organizados con colores corporativos
+ * 📄 Descargar imagen desde URL (para plantilla del boleto)
  */
-const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
-  return new Promise((resolve, reject) => {
+const descargarImagen = async (url) => {
+  try {
+    const axios = (await import('axios')).default;
+    const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 });
+    return Buffer.from(response.data);
+  } catch (err) {
+    console.warn('⚠️ No se pudo descargar imagen de plantilla:', err.message);
+    return null;
+  }
+};
+
+/**
+ * 📄 Generar PDF de boletos oficiales Coljuegos
+ * Cada número se renderiza como un boleto completo con todos los campos legales
+ */
+const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
+  return new Promise(async (resolve, reject) => {
     try {
+      // Tamaño boleto: 3.5" x 7" (formato físico típico de rifas colombianas)
+      const BOLETO_W = 252; // 3.5" a 72dpi
+      const BOLETO_H = 504; // 7" a 72dpi
+      const COLS     = 2;
+      const MARGIN   = 20;
+      const GAP      = 10;
+
       const doc = new PDFDocument({
         size: 'A4',
-        margins: { top: 50, bottom: 50, left: 50, right: 50 }
+        margins: { top: 20, bottom: 20, left: 20, right: 20 },
+        autoFirstPage: false
       });
 
       const chunks = [];
@@ -64,242 +86,178 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // COLORES CORPORATIVOS
-      const colorAzulOscuro  = '#0A369D';
-      const colorAzulMedio   = '#4472CA';
-      const colorAzulClaro   = '#92B4F4';
-      const colorFondoSuave  = '#f0f4ff';
-      const colorBorde       = '#CFDEE7';
-      const colorFondoGris   = '#f5f7fb';
-      const colorTextoOscuro = '#2d2d2d';
-      const colorTextoGris   = '#5a6370';
+      // Colores corporativos
+      const AZUL_OSCURO  = '#0A369D';
+      const AZUL_MEDIO   = '#4472CA';
+      const AZUL_CLARO   = '#92B4F4';
+      const FONDO_SUAVE  = '#f0f4ff';
+      const BORDE        = '#CFDEE7';
+      const TEXTO_OSCURO = '#1a1a2e';
+      const TEXTO_GRIS   = '#5a6370';
 
-      // ═══════════════════════════════════════
-      // ENCABEZADO
-      // ═══════════════════════════════════════
+      // Descargar imagen de plantilla si existe
+      let imagenPlantilla = null;
+      if (rifa.imagen_boleta_url) {
+        imagenPlantilla = await descargarImagen(rifa.imagen_boleta_url);
+      }
 
-      // Fondo principal del header
-      doc.rect(0, 0, 595, 150)
-         .fill(colorAzulOscuro);
+      // Formatear fecha sorteo
+      const fechaSorteoStr = rifa.fecha_sorteo
+        ? new Date(rifa.fecha_sorteo).toLocaleDateString('es-CO', {
+            year: 'numeric', month: 'long', day: 'numeric',
+            hour: '2-digit', minute: '2-digit', timeZone: 'America/Bogota'
+          })
+        : 'Por confirmar';
 
-      // Franja inferior del header (acento más claro)
-      doc.rect(0, 120, 595, 30)
-         .fill(colorAzulMedio);
+      // Formatear fecha autorización
+      const fechaAutorizacion = rifa.fecha_autorizacion
+        ? new Date(rifa.fecha_autorizacion).toLocaleDateString('es-CO', {
+            year: 'numeric', month: 'long', day: 'numeric'
+          })
+        : 'Por confirmar';
 
-      // Título principal
-      doc.fontSize(32)
-         .fillColor('#ffffff')
-         .font('Helvetica-Bold')
-         .text('StayAway Rifas', 50, 38, { align: 'center' });
+      // Calcular dígitos para formateo
+      const digitosFormato = (rifa.cantidad_numeros - 1).toString().length;
+      const formatNum = (n) => n.toString().padStart(digitosFormato, '0');
 
-      // Subtítulo con título de la rifa
-      doc.fontSize(17)
-         .fillColor('#ffffff')
-         .font('Helvetica')
-         .opacity(0.92)
-         .text(rifa.titulo, 50, 82, { align: 'center', width: 495 });
+      // Posiciones de boletos en página A4 (595 x 842)
+      // 2 columnas, filas dinámicas
+      const PAGE_W = 595;
+      const PAGE_H = 842;
+      const startX = MARGIN;
+      const startY = MARGIN;
 
-      // Fecha de generación en la franja inferior
-      doc.fontSize(10)
-         .fillColor('#ffffff')
-         .font('Helvetica')
-         .opacity(0.85)
-         .text(`Generado el ${new Date().toLocaleDateString('es-CO', {
-           year: 'numeric',
-           month: 'long',
-           day: 'numeric',
-           hour: '2-digit',
-           minute: '2-digit'
-         })}`, 50, 128, { align: 'center' });
+      let boletoIndex = 0;
 
-      // Resetear opacidad
-      doc.opacity(1);
+      for (const numero of numerosUsuario) {
+        // Calcular posición en página
+        const col    = boletoIndex % COLS;
+        const row    = Math.floor(boletoIndex / COLS);
+        const maxRows = Math.floor((PAGE_H - MARGIN * 2) / (BOLETO_H + GAP));
 
-      // ═══════════════════════════════════════
-      // SECCIÓN: DATOS DEL USUARIO
-      // ═══════════════════════════════════════
-
-      let currentY = 180;
-
-      // Título de sección
-      doc.fontSize(14)
-         .fillColor(colorAzulOscuro)
-         .font('Helvetica-Bold')
-         .text('Información del Participante', 50, currentY);
-
-      // Línea decorativa bajo el título
-      doc.rect(50, currentY + 22, 495, 3)
-         .fill(colorAzulMedio);
-
-      currentY += 38;
-
-      // Caja de información del usuario
-      doc.rect(50, currentY, 495, 120)
-         .fillAndStroke(colorFondoGris, colorBorde)
-         .lineWidth(1.5);
-
-      // Borde izquierdo destacado (acento azul)
-      doc.rect(50, currentY, 5, 120)
-         .fill(colorAzulOscuro);
-
-      currentY += 20;
-
-      const datosUsuario = [
-        { label: 'Nombre Completo:', valor: `${usuario.nombres} ${usuario.apellidos}` },
-        { label: 'Documento:',       valor: `${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}` },
-        { label: 'Correo:',          valor: usuario.correo_electronico },
-        { label: 'Teléfono:',        valor: usuario.telefono || 'No registrado' }
-      ];
-
-      datosUsuario.forEach((dato, index) => {
-        const yPos = currentY + (index * 21);
-
-        doc.fontSize(10)
-           .fillColor(colorTextoGris)
-           .font('Helvetica-Bold')
-           .text(dato.label, 70, yPos);
-
-        doc.fontSize(10)
-           .fillColor(colorTextoOscuro)
-           .font('Helvetica')
-           .text(dato.valor, 220, yPos);
-      });
-
-      currentY += 115;
-
-      // ═══════════════════════════════════════
-      // SECCIÓN: TUS NÚMEROS
-      // ═══════════════════════════════════════
-
-      currentY += 12;
-
-      // Título de sección
-      doc.fontSize(14)
-         .fillColor(colorAzulOscuro)
-         .font('Helvetica-Bold')
-         .text('Tus Números de la Suerte', 50, currentY);
-
-      // Línea decorativa bajo el título
-      doc.rect(50, currentY + 22, 495, 3)
-         .fill(colorAzulMedio);
-
-      currentY += 38;
-
-      // Badge con contador de números
-      doc.rect(50, currentY, 495, 30)
-         .fill(colorFondoSuave);
-
-      doc.fontSize(11)
-         .fillColor(colorAzulOscuro)
-         .font('Helvetica-Bold')
-         .text(`Total de números adquiridos: ${numerosUsuario.length}`, 50, currentY + 9, {
-           align: 'center',
-           width: 495
-         });
-
-      currentY += 46;
-
-      // ═══════════════════════════════════════
-      // GRID DE NÚMEROS (8 por fila)
-      // ═══════════════════════════════════════
-
-      const numerosPerRow   = 8;
-      const boxWidth        = 56;
-      const boxHeight       = 45;
-      const horizontalSpacing = 6;
-      const verticalSpacing   = 10;
-      const startX = 50;
-      let x = startX;
-      let y = currentY;
-
-      numerosUsuario.forEach((numero, index) => {
-        if (index > 0 && index % numerosPerRow === 0) {
-          x = startX;
-          y += boxHeight + verticalSpacing;
-
-          if (y > 700) {
-            doc.addPage();
-            y = 50;
-
-            // Header compacto en páginas adicionales
-            doc.rect(0, 0, 595, 45)
-               .fill(colorAzulOscuro);
-
-            doc.fontSize(13)
-               .fillColor('#ffffff')
-               .font('Helvetica-Bold')
-               .text('StayAway Rifas — Tus Números (continuación)', 50, 14, {
-                 align: 'center',
-                 width: 495
-               });
-
-            y = 65;
-          }
+        if (boletoIndex % (COLS * maxRows) === 0) {
+          doc.addPage();
+          // Header de página
+          doc.rect(0, 0, PAGE_W, 18).fill(AZUL_OSCURO);
+          doc.fontSize(7).fillColor('#ffffff').font('Helvetica')
+             .text(`StayAway Rifas — Boletos oficiales de ${usuario.nombres} ${usuario.apellidos} — ${rifa.titulo}`,
+               0, 5, { align: 'center', width: PAGE_W });
         }
 
-        // Caja del número: fondo suave + borde azul
-        doc.rect(x, y, boxWidth, boxHeight)
-           .fillAndStroke(colorFondoSuave, colorAzulMedio)
-           .lineWidth(1.5);
+        const pageRow  = Math.floor((boletoIndex % (COLS * maxRows)) / COLS);
+        const bX = startX + col * (BOLETO_W + GAP);
+        const bY = 25 + pageRow * (BOLETO_H + GAP);
 
-        // Franja superior de color en cada caja
-        doc.rect(x, y, boxWidth, 6)
-           .fill(colorAzulOscuro);
+        // ── BOLETO ──────────────────────────────────────
 
-        // Número centrado
-        doc.fontSize(15)
-           .fillColor(colorAzulOscuro)
-           .font('Helvetica-Bold')
-           .text(`#${numero}`, x, y + 16, {
-             width: boxWidth,
-             align: 'center'
-           });
+        // Fondo del boleto
+        if (imagenPlantilla) {
+          // Si hay plantilla: usarla como fondo
+          doc.image(imagenPlantilla, bX, bY, { width: BOLETO_W, height: BOLETO_H });
+          // Overlay semitransparente para que texto sea legible
+          doc.rect(bX, bY, BOLETO_W, BOLETO_H).fillOpacity(0.55).fill('#ffffff');
+          doc.fillOpacity(1);
+        } else {
+          // Sin plantilla: diseño puro con PDFKit
+          doc.rect(bX, bY, BOLETO_W, BOLETO_H)
+             .fillAndStroke(FONDO_SUAVE, AZUL_OSCURO).lineWidth(1.5);
+        }
 
-        x += boxWidth + horizontalSpacing;
-      });
+        // ── FRANJA SUPERIOR (nombre rifa)
+        doc.rect(bX, bY, BOLETO_W, 36).fill(AZUL_OSCURO);
+        doc.fontSize(9).fillColor('#ffffff').font('Helvetica-Bold')
+           .text('StayAway Rifas', bX, bY + 4, { width: BOLETO_W, align: 'center' });
+        doc.fontSize(8).fillColor(AZUL_CLARO).font('Helvetica')
+           .text(rifa.titulo, bX, bY + 16, { width: BOLETO_W, align: 'center' });
 
-      // ═══════════════════════════════════════
-      // FOOTER
-      // ═══════════════════════════════════════
+        // ── NÚMERO GRANDE (campo a)
+        doc.rect(bX + 10, bY + 44, BOLETO_W - 20, 68)
+           .fillAndStroke(AZUL_OSCURO, AZUL_OSCURO);
+        doc.fontSize(7).fillColor(AZUL_CLARO).font('Helvetica')
+           .text('NÚMERO DE BOLETA', bX + 10, bY + 50, { width: BOLETO_W - 20, align: 'center' });
+        doc.fontSize(32).fillColor('#ffffff').font('Helvetica-Bold')
+           .text(formatNum(numero), bX + 10, bY + 62, { width: BOLETO_W - 20, align: 'center' });
 
-      doc.y = 750;
+        // ── SECCIÓN: VALOR (campo b)
+        let cy = bY + 122;
+        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE);
+        cy += 5;
+        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
+           .text('VALOR DE VENTA AL PÚBLICO', bX + 8, cy);
+        doc.fontSize(11).fillColor(AZUL_OSCURO).font('Helvetica-Bold')
+           .text(`$${(rifa.precio_unitario || 0).toLocaleString('es-CO')} COP`, bX + 8, cy + 10);
 
-      // Línea separadora azul
-      doc.strokeColor(colorAzulMedio)
-         .lineWidth(2)
-         .moveTo(50, 750)
-         .lineTo(545, 750)
-         .stroke();
+        // ── SECCIÓN: SORTEO (campos c + d)
+        cy += 32;
+        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 5;
+        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
+           .text('LUGAR, FECHA Y HORA DEL SORTEO', bX + 8, cy);
+        doc.fontSize(8).fillColor(TEXTO_OSCURO).font('Helvetica')
+           .text(fechaSorteoStr, bX + 8, cy + 10, { width: BOLETO_W - 16 });
 
-      // Franja de fondo del footer
-      doc.rect(0, 755, 595, 90)
-         .fill(colorAzulOscuro);
+        cy += 28;
+        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
+           .text('LOTERÍA DE REFERENCIA', bX + 8, cy);
+        doc.fontSize(8).fillColor(AZUL_OSCURO).font('Helvetica-Bold')
+           .text(rifa.loteria_referencia || 'Por confirmar', bX + 8, cy + 10);
 
-      doc.fontSize(11)
-         .fillColor('#ffffff')
-         .font('Helvetica-Bold')
-         .text('StayAway Rifas', 50, 765, { align: 'center', width: 495 });
+        // ── SECCIÓN: CADUCIDAD (campo e)
+        cy += 28;
+        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 5;
+        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
+           .text('TÉRMINO DE CADUCIDAD DEL PREMIO', bX + 8, cy);
+        doc.fontSize(8).fillColor(TEXTO_OSCURO).font('Helvetica')
+           .text(rifa.termino_caducidad || '30 días hábiles después del sorteo', bX + 8, cy + 10, { width: BOLETO_W - 16 });
 
-      doc.fontSize(9)
-         .fillColor('#ffffff')
-         .font('Helvetica')
-         .opacity(0.85)
-         .text('Todos los derechos reservados © 2026', 50, 780, {
-           align: 'center',
-           width: 495
-         });
+        // ── SECCIÓN: RESOLUCIÓN COLJUEGOS (campo f)
+        cy += 28;
+        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 5;
+        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
+           .text('ACTO ADMINISTRATIVO DE AUTORIZACIÓN', bX + 8, cy);
+        doc.fontSize(7.5).fillColor(TEXTO_OSCURO).font('Helvetica')
+           .text(`Resolución N° ${rifa.numero_resolucion || '___________'}`, bX + 8, cy + 10);
+        doc.fontSize(7.5).fillColor(TEXTO_OSCURO).font('Helvetica')
+           .text(`Fecha: ${fechaAutorizacion}`, bX + 8, cy + 21);
 
-      doc.fontSize(9)
-         .fillColor('#ffffff')
-         .opacity(0.75)
-         .text('Guarda este documento como comprobante de tu participación', 50, 795, {
-           align: 'center',
-           width: 495
-         });
+        // ── SECCIÓN: PREMIOS (campos g + h)
+        cy += 42;
+        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 5;
+        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
+           .text('DESCRIPCIÓN Y VALOR DE LOS PREMIOS', bX + 8, cy);
+        doc.fontSize(7.5).fillColor(TEXTO_OSCURO).font('Helvetica')
+           .text(rifa.descripcion_premios || rifa.descripcion || 'Ver descripción en stayaway.com.co', bX + 8, cy + 10, { width: BOLETO_W - 16, height: 28 });
+        doc.fontSize(8).fillColor(AZUL_OSCURO).font('Helvetica-Bold')
+           .text(`Valor total premios: $${(rifa.valor_premios || 0).toLocaleString('es-CO')} COP`, bX + 8, cy + 38);
 
-      doc.opacity(1);
+        // ── SECCIÓN: RESPONSABLE (campos i)
+        cy += 56;
+        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 5;
+        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
+           .text('RESPONSABLE DE LA RIFA', bX + 8, cy);
+        doc.fontSize(7.5).fillColor(TEXTO_OSCURO).font('Helvetica')
+           .text(rifa.responsable_nombre || 'StayAway S.A.S.', bX + 8, cy + 10);
+        doc.fontSize(7).fillColor(TEXTO_GRIS).font('Helvetica')
+           .text(`${rifa.responsable_id || ''} — ${rifa.responsable_domicilio || 'Cali, Valle del Cauca'}`, bX + 8, cy + 20, { width: BOLETO_W - 16 });
+
+        // ── SECCIÓN: PORTADOR (campo k)
+        cy += 38;
+        doc.rect(bX, cy, BOLETO_W, 28).fill(AZUL_OSCURO);
+        doc.fontSize(7).fillColor('#ffffff').font('Helvetica-Bold')
+           .text('PREMIO NO PAGADERO AL PORTADOR', bX, cy + 5, { width: BOLETO_W, align: 'center' });
+        doc.fontSize(6.5).fillColor(AZUL_CLARO).font('Helvetica')
+           .text('El ganador debe identificarse con documento original', bX, cy + 15, { width: BOLETO_W, align: 'center' });
+
+        // ── DATOS DEL COMPRADOR (footer del boleto)
+        cy += 34;
+        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 4;
+        doc.fontSize(6).fillColor(TEXTO_GRIS).font('Helvetica')
+           .text(`Titular: ${usuario.nombres} ${usuario.apellidos}  |  Doc: ${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`,
+             bX + 4, cy, { width: BOLETO_W - 8, align: 'center' });
+
+        boletoIndex++;
+      }
+
       doc.end();
-
     } catch (error) {
       reject(error);
     }
@@ -318,33 +276,44 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
     console.log(`   - Números gratis: ${transaccion.numerosGratis || 0}`);
     console.log(`   - Total entregado: ${numerosAsignados.length}`);
 
-    // ✅ Generar PDF con los números
-    console.log("📄 Generando PDF de números...");
-    
-    // Datos de la rifa para el PDF
-    const rifaData = {
+    // ✅ Obtener rifa completa con todos los campos nuevos de Coljuegos
+    const { data: rifa, error: rifaError } = await supabaseAdmin
+      .from('rifas')
+      .select(`
+        id, titulo, cantidad_numeros, precio_unitario, fecha_sorteo,
+        loteria_referencia, descripcion, descripcion_premios, valor_premios,
+        numero_resolucion, fecha_autorizacion, termino_caducidad,
+        responsable_nombre, responsable_domicilio, responsable_id,
+        imagen_boleta_url
+      `)
+      .eq('id', transaccion.rifa_id)
+      .single();
+
+    if (rifaError || !rifa) {
+      console.warn('⚠️ No se pudo obtener info completa de la rifa, usando datos básicos');
+    }
+
+    const rifaData = rifa || {
       titulo: transaccion.rifaTitulo,
-      cantidad_numeros: transaccion.cantidad // Para calcular dígitos
+      cantidad_numeros: transaccion.cantidad,
+      precio_unitario: transaccion.precio_unitario
     };
 
-    const pdfBuffer = await generarPDFNumeros(usuario, rifaData, numerosAsignados);
-    console.log("✅ PDF generado exitosamente");
+    console.log('📄 Generando PDF de boletos oficiales...');
+    const pdfBuffer = await generarPDFBoletos(usuario, rifaData, numerosAsignados);
+    console.log('✅ PDF generado exitosamente');
 
-    // ✅ Convertir PDF a base64 para adjuntar
     const pdfBase64 = pdfBuffer.toString('base64');
-
-    // ✅ Generar HTML del correo
     const htmlContent = generarTemplateCompra(usuario, transaccion, numerosAsignados);
 
-    // ✅ Enviar correo con Resend
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <noreply@stayaway.com.co>', // ← CORREGIR AQUÍ
+      from: 'StayAway Rifas <noreply@stayaway.com.co>',
       to: [usuario.correo_electronico],
       subject: `✅ Compra Exitosa - ${transaccion.rifaTitulo}${transaccion.numerosGratis > 0 ? ' 🎁 ¡Con números gratis!' : ''}`,
       html: htmlContent,
       attachments: [
         {
-          filename: `StayAway_Numeros_Rifa_${transaccion.referencia}.pdf`,
+          filename: `StayAway_Boletos_${transaccion.referencia}.pdf`,
           content: pdfBase64,
           type: 'application/pdf',
           disposition: 'attachment'
@@ -1167,10 +1136,28 @@ export const enviarCorreoGanador = async (ganador, rifa, numeroGanador, loteriaR
  */
 export const enviarCorreoParticipantes = async (usuario, rifa, numeroGanador, numerosUsuario, loteriaReferencia) => {
   try {
-    console.log('📄 Generando PDF de números para participante...');
-    
-    // Generar PDF
-    const pdfBuffer = await generarPDFNumeros(usuario, rifa, numerosUsuario);
+    console.log('📄 Generando PDF de boletos para participante...');
+
+    // ✅ Asegurarse de que la rifa tenga todos los campos nuevos de Coljuegos
+    // Si viene del adminController puede que no tenga todos los campos,
+    // hacemos un fetch de seguridad
+    let rifaCompleta = rifa;
+    if (!rifa.numero_resolucion && !rifa.imagen_boleta_url) {
+      const { data: rifaFetched } = await supabaseAdmin
+        .from('rifas')
+        .select(`
+          id, titulo, cantidad_numeros, precio_unitario, fecha_sorteo,
+          loteria_referencia, descripcion, descripcion_premios, valor_premios,
+          numero_resolucion, fecha_autorizacion, termino_caducidad,
+          responsable_nombre, responsable_domicilio, responsable_id,
+          imagen_boleta_url
+        `)
+        .eq('id', rifa.id)
+        .single();
+      if (rifaFetched) rifaCompleta = rifaFetched;
+    }
+
+    const pdfBuffer = await generarPDFBoletos(usuario, rifaCompleta, numerosUsuario);
 
     const { data, error } = await resend.emails.send({
       from: 'StayAway Rifas <noreply@stayaway.com.co>',
@@ -1180,7 +1167,7 @@ export const enviarCorreoParticipantes = async (usuario, rifa, numeroGanador, nu
       attachments: [
         {
           content: pdfBuffer.toString('base64'),
-          filename: `StayAway_Numeros_Rifa_${rifa.id}.pdf`,
+          filename: `StayAway_Boletos_Sorteo_${rifa.id}.pdf`,
         }
       ]
     });
@@ -1746,10 +1733,26 @@ export const enviarCorreoSorteoDesierto = async (
   loteriaReferencia
 ) => {
   try {
-    console.log('📄 Generando PDF de números para sorteo desierto...');
-    
-    // Generar PDF
-    const pdfBuffer = await generarPDFNumeros(usuario, rifa, numerosUsuario);
+    console.log('📄 Generando PDF de boletos para sorteo desierto...');
+
+    // ✅ Mismo fetch de seguridad para garantizar campos Coljuegos
+    let rifaCompleta = rifa;
+    if (!rifa.numero_resolucion && !rifa.imagen_boleta_url) {
+      const { data: rifaFetched } = await supabaseAdmin
+        .from('rifas')
+        .select(`
+          id, titulo, cantidad_numeros, precio_unitario, fecha_sorteo,
+          loteria_referencia, descripcion, descripcion_premios, valor_premios,
+          numero_resolucion, fecha_autorizacion, termino_caducidad,
+          responsable_nombre, responsable_domicilio, responsable_id,
+          imagen_boleta_url
+        `)
+        .eq('id', rifa.id)
+        .single();
+      if (rifaFetched) rifaCompleta = rifaFetched;
+    }
+
+    const pdfBuffer = await generarPDFBoletos(usuario, rifaCompleta, numerosUsuario);
 
     const { data, error } = await resend.emails.send({
       from: 'StayAway Rifas <noreply@stayaway.com.co>',
@@ -1766,7 +1769,7 @@ export const enviarCorreoSorteoDesierto = async (
       attachments: [
         {
           content: pdfBuffer.toString('base64'),
-          filename: `StayAway_Numeros_Sorteo_Desierto_${rifa.id}.pdf`,
+          filename: `StayAway_Boletos_Desierto_${rifa.id}.pdf`,
         }
       ]
     });
