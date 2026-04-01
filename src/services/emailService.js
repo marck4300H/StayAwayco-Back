@@ -69,20 +69,18 @@ const descargarImagen = async (url) => {
 const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const CM = 28.35; // puntos por cm
+      const CM = 28.35;
 
-      // ── Dimensiones exactas del boleto
-      const BOLETO_W = 11 * CM; // 311.85 pt
-      const BOLETO_H = 5  * CM; // 141.75 pt
-      const GAP      = 0.4 * CM; // 11.34 pt — espacio entre boletos
+      const BOLETO_W   = 11 * CM;
+      const BOLETO_H   = 5  * CM;
+      const GAP        = 0.5 * CM;
 
-      // ── Página A4
-      const PAGE_W   = 595;
-      const PAGE_H   = 842;
-      const MARGIN_X = (PAGE_W - BOLETO_W) / 2; // centrado horizontal
-      const MARGIN_Y = 1 * CM;
+      const PAGE_W     = 595;
+      const PAGE_H     = 842;
+      const MARGIN_X   = (PAGE_W - BOLETO_W) / 2;
+      const MARGIN_Y   = 0.8 * CM;
 
-      const POR_PAGINA = Math.floor((PAGE_H - MARGIN_Y * 2) / (BOLETO_H + GAP)); // = 4
+      const POR_PAGINA = Math.floor((PAGE_H - MARGIN_Y * 2) / (BOLETO_H + GAP)); // 4
 
       const doc = new PDFDocument({
         size: 'A4',
@@ -92,10 +90,9 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
 
       const chunks = [];
       doc.on('data', chunk => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('end',  () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Descargar imagen plantilla
       let imagenPlantilla = null;
       if (rifa.imagen_boleta_url) {
         imagenPlantilla = await descargarImagen(rifa.imagen_boleta_url);
@@ -117,77 +114,80 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       const digitosFormato = (rifa.cantidad_numeros - 1).toString().length;
       const formatNum = (n) => n.toString().padStart(digitosFormato, '0');
 
-      // Zonas internas del boleto
-      const NUM_ZONE_W = 1.5 * CM;  // franja izquierda para el número rotado
-      const DATA_X     = MARGIN_X + NUM_ZONE_W + (0.3 * CM);
-      const DATA_W     = 4.5 * CM;  // columna campos legales
-      const RIGHT_X    = DATA_X + DATA_W + (0.2 * CM); // columna derecha (título + fotos)
-      const RIGHT_W    = BOLETO_W - NUM_ZONE_W - DATA_W - (0.5 * CM) - (0.3 * CM);
+      // ── Zonas internas ──────────────────────────────
+      const NUM_ZONE_W = 1.4 * CM;   // franja número izquierda
+      const SEP        = 0.25 * CM;  // separador tras línea vertical
+      const DATA_X     = MARGIN_X + NUM_ZONE_W + SEP;
+      const DATA_W     = 4.2 * CM;   // ← reducido para no chocar con columna derecha
+      const RIGHT_X    = DATA_X + DATA_W + (0.15 * CM);
+      const RIGHT_W    = BOLETO_W - NUM_ZONE_W - SEP - DATA_W - (0.15 * CM) - (0.35 * CM);
 
       const NEGRO      = '#111111';
-      const GRIS_LABEL = '#777777';
-      const lineH      = 0.75 * CM;
+      const GRIS_LABEL = '#666666';
+
+      // Tamaños de fuente reducidos
+      const F_LABEL    = 4.8;  // etiqueta
+      const F_VALUE    = 6.2;  // valor
+      const F_NUM      = 28;   // número rotado
+      const F_TITULO   = 11;   // título columna derecha
+
+      // Altura de cada campo (label + valor + padding)
+      const FIELD_H    = 0.68 * CM;
+      // Padding superior total para los campos
+      const PAD_TOP    = 0.15 * CM;
 
       let boletoIndex = 0;
 
       for (const numero of numerosUsuario) {
 
-        if (boletoIndex % POR_PAGINA === 0) {
-          doc.addPage();
-        }
+        if (boletoIndex % POR_PAGINA === 0) doc.addPage();
 
         const posEnPagina = boletoIndex % POR_PAGINA;
         const bX = MARGIN_X;
         const bY = MARGIN_Y + posEnPagina * (BOLETO_H + GAP);
 
-        // ── FONDO: imagen plantilla o fallback blanco
+        // ── Fondo / plantilla
         if (imagenPlantilla) {
           doc.image(imagenPlantilla, bX, bY, {
             width:  BOLETO_W,
-            height: BOLETO_H,
-            align:  'center',
-            valign: 'center'
+            height: BOLETO_H
           });
         } else {
-          // Fallback sin plantilla
           doc.rect(bX, bY, BOLETO_W, BOLETO_H)
-             .fillAndStroke('#ffffff', NEGRO)
-             .lineWidth(1)
+             .fillAndStroke('#ffffff', NEGRO).lineWidth(1)
              .dash(3, { space: 2 });
           doc.undash();
         }
 
-        // ── NÚMERO ROTADO −90° en franja izquierda
+        // ── Número rotado −90°
         doc.save();
-        doc.translate(
-          bX + NUM_ZONE_W / 2,
-          bY + BOLETO_H / 2
-        );
+        doc.translate(bX + NUM_ZONE_W / 2, bY + BOLETO_H / 2);
         doc.rotate(-90);
-        doc.fontSize(30)
+        doc.fontSize(F_NUM)
            .fillColor(NEGRO)
            .font('Helvetica-Bold')
-           .text(formatNum(numero), -(BOLETO_H / 2), -18, {
+           .text(formatNum(numero), -(BOLETO_H / 2), -F_NUM / 2, {
              width: BOLETO_H,
              align: 'center',
              lineBreak: false
            });
         doc.restore();
 
-        // ── CAMPOS LEGALES (columna central)
-        let cy = bY + (0.18 * CM);
+        // ── Campos legales
+        let cy = bY + PAD_TOP;
 
         const campo = (label, valor) => {
-          doc.fontSize(5.2)
+          doc.fontSize(F_LABEL)
              .fillColor(GRIS_LABEL)
              .font('Helvetica-Bold')
              .text(label, DATA_X, cy, { width: DATA_W, lineBreak: false });
-          cy += 0.22 * CM;
-          doc.fontSize(6.8)
+
+          doc.fontSize(F_VALUE)
              .fillColor(NEGRO)
              .font('Helvetica-Bold')
-             .text(valor || '—', DATA_X, cy, { width: DATA_W });
-          cy += lineH;
+             .text(valor || '—', DATA_X, cy + (F_LABEL + 1.5), { width: DATA_W, lineBreak: false });
+
+          cy += FIELD_H;
         };
 
         campo('VALOR VENTA AL PÚBLICO:',
@@ -206,25 +206,26 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
         campo('RESPONSABLE DE LA RIFA:',
           `${rifa.responsable_nombre || 'StayAway S.A.S.'}  ${rifa.responsable_id || ''}`);
 
-        // Titular al pie del boleto
-        doc.fontSize(5)
+        // Titular — pegado al borde inferior con margen fijo
+        doc.fontSize(4.5)
            .fillColor(GRIS_LABEL)
            .font('Helvetica')
            .text(
              `Titular: ${usuario.nombres} ${usuario.apellidos}  |  ${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`,
              DATA_X,
-             bY + BOLETO_H - (0.35 * CM),
+             bY + BOLETO_H - (0.28 * CM),
              { width: DATA_W, lineBreak: false }
            );
 
-        // ── COLUMNA DERECHA: título de la rifa
-        doc.fontSize(13)
+        // ── Título en columna derecha — bajado al centro vertical
+        const tituloY = bY + (BOLETO_H / 2) - (0.5 * CM); // centrado vertical, levemente abajo
+        doc.fontSize(F_TITULO)
            .fillColor(NEGRO)
            .font('Helvetica-Bold')
            .text(
              rifa.titulo,
              RIGHT_X,
-             bY + (1.4 * CM),
+             tituloY,
              { width: RIGHT_W, align: 'center' }
            );
 
@@ -237,7 +238,6 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
     }
   });
 };
-
 
 
 /**
