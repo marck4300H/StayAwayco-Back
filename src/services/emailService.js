@@ -80,7 +80,7 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       const MARGIN_X   = (PAGE_W - BOLETO_W) / 2;
       const MARGIN_Y   = 0.8 * CM;
 
-      const POR_PAGINA = Math.floor((PAGE_H - MARGIN_Y * 2) / (BOLETO_H + GAP)); // 4
+      const POR_PAGINA = Math.floor((PAGE_H - MARGIN_Y * 2) / (BOLETO_H + GAP));
 
       const doc = new PDFDocument({
         size: 'A4',
@@ -114,27 +114,27 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       const digitosFormato = (rifa.cantidad_numeros - 1).toString().length;
       const formatNum = (n) => n.toString().padStart(digitosFormato, '0');
 
-      // ── Zonas internas ──────────────────────────────
-      const NUM_ZONE_W = 1.4 * CM;   // franja número izquierda
-      const SEP        = 0.25 * CM;  // separador tras línea vertical
+      // ── Zonas internas
+      const NUM_ZONE_W = 1.4 * CM;
+      const SEP        = 0.25 * CM;
       const DATA_X     = MARGIN_X + NUM_ZONE_W + SEP;
-      const DATA_W     = 4.2 * CM;   // ← reducido para no chocar con columna derecha
+      const DATA_W     = 4.2 * CM;
       const RIGHT_X    = DATA_X + DATA_W + (0.15 * CM);
       const RIGHT_W    = BOLETO_W - NUM_ZONE_W - SEP - DATA_W - (0.15 * CM) - (0.35 * CM);
 
       const NEGRO      = '#111111';
       const GRIS_LABEL = '#666666';
 
-      // Tamaños de fuente reducidos
-      const F_LABEL    = 4.8;  // etiqueta
-      const F_VALUE    = 6.2;  // valor
-      const F_NUM      = 28;   // número rotado
-      const F_TITULO   = 11;   // título columna derecha
+      const F_LABEL    = 4.8;
+      const F_VALUE    = 6.2;
+      const F_NUM      = 28;
+      const F_TITULO   = 11;
+      const F_PIE      = 4.5;
 
-      // Altura de cada campo (label + valor + padding)
-      const FIELD_H    = 0.68 * CM;
-      // Padding superior total para los campos
-      const PAD_TOP    = 0.15 * CM;
+      // Altura base por campo — valores de 1 línea
+      // Para valores que pueden tener 2 líneas usamos campo_largo()
+      const FIELD_H_1  = 0.62 * CM;  // campo 1 línea
+      const FIELD_H_2  = 0.90 * CM;  // campo 2 líneas (sorteo, acto admin)
 
       let boletoIndex = 0;
 
@@ -173,52 +173,70 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
            });
         doc.restore();
 
-        // ── Campos legales
-        let cy = bY + PAD_TOP;
+        // ── Helpers de campo
+        let cy = bY + (0.12 * CM);
 
+        // Campo valor corto (1 línea) — sin lineBreak
         const campo = (label, valor) => {
-          doc.fontSize(F_LABEL)
-             .fillColor(GRIS_LABEL)
-             .font('Helvetica-Bold')
+          doc.fontSize(F_LABEL).fillColor(GRIS_LABEL).font('Helvetica-Bold')
              .text(label, DATA_X, cy, { width: DATA_W, lineBreak: false });
-
-          doc.fontSize(F_VALUE)
-             .fillColor(NEGRO)
-             .font('Helvetica-Bold')
-             .text(valor || '—', DATA_X, cy + (F_LABEL + 1.5), { width: DATA_W, lineBreak: false });
-
-          cy += FIELD_H;
+          doc.fontSize(F_VALUE).fillColor(NEGRO).font('Helvetica-Bold')
+             .text(valor || '—', DATA_X, cy + (F_LABEL + 1.5), {
+               width: DATA_W,
+               lineBreak: false  // 1 línea
+             });
+          cy += FIELD_H_1;
         };
 
+        // Campo valor largo (hasta 2 líneas) — con lineBreak
+        const campoLargo = (label, valor) => {
+          doc.fontSize(F_LABEL).fillColor(GRIS_LABEL).font('Helvetica-Bold')
+             .text(label, DATA_X, cy, { width: DATA_W, lineBreak: false });
+          doc.fontSize(F_VALUE).fillColor(NEGRO).font('Helvetica-Bold')
+             .text(valor || '—', DATA_X, cy + (F_LABEL + 1.5), {
+               width: DATA_W,
+               lineBreak: true,   // permite 2 líneas
+               height: F_VALUE * 2 + 4
+             });
+          cy += FIELD_H_2;
+        };
+
+        // ── Campos legales
+        // 1. Valor — corto
         campo('VALOR VENTA AL PÚBLICO:',
           `$${(rifa.precio_unitario || 0).toLocaleString('es-CO')} COP`);
 
-        campo('LUGAR, HORA Y FECHA DEL SORTEO:', fechaSorteoStr);
+        // 2. Sorteo — puede ser largo
+        campoLargo('LUGAR, HORA Y FECHA DEL SORTEO:', fechaSorteoStr);
 
+        // 3. Lotería — corto
         campo('LOTERÍA DE REFERENCIA:', rifa.loteria_referencia || '—');
 
+        // 4. Caducidad — corto
         campo('TÉRMINO DE CADUCIDAD DEL PREMIO:',
-          rifa.termino_caducidad || '30 días hábiles después del sorteo');
+          rifa.termino_caducidad || '30 días hábiles');
 
-        campo('ACTO ADMINISTRATIVO DE AUTORIZACIÓN:',
+        // 5. Acto admin — puede ser largo
+        campoLargo('ACTO ADMINISTRATIVO DE AUTORIZACIÓN:',
           `Res. N° ${rifa.numero_resolucion || '___'}  Fecha: ${fechaAutorizacion}`);
 
-        campo('RESPONSABLE DE LA RIFA:',
-          `${rifa.responsable_nombre || 'StayAway S.A.S.'}  ${rifa.responsable_id || ''}`);
+        // 6. ← COMPRADOR (antes era "responsable de la rifa")
+        campo('COMPRADOR:',
+          `${usuario.nombres} ${usuario.apellidos}  |  ${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`);
 
-        // Titular — pegado al borde inferior con margen fijo
-        doc.fontSize(4.5)
+        // ── Pie del boleto: RESPONSABLE LEGAL de la rifa
+        doc.fontSize(F_PIE)
            .fillColor(GRIS_LABEL)
            .font('Helvetica')
            .text(
-             `Titular: ${usuario.nombres} ${usuario.apellidos}  |  ${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`,
+             `Responsable: ${rifa.responsable_nombre || 'StayAway S.A.S.'}  ${rifa.responsable_id ? '| ' + rifa.responsable_id : ''}  ${rifa.responsable_domicilio ? '— ' + rifa.responsable_domicilio : ''}`,
              DATA_X,
              bY + BOLETO_H - (0.28 * CM),
              { width: DATA_W, lineBreak: false }
            );
 
-        // ── Título en columna derecha — bajado al centro vertical
-        const tituloY = bY + (BOLETO_H / 2) - (0.5 * CM); // centrado vertical, levemente abajo
+        // ── Título en columna derecha — centrado vertical
+        const tituloY = bY + (BOLETO_H / 2) - (0.6 * CM);
         doc.fontSize(F_TITULO)
            .fillColor(NEGRO)
            .font('Helvetica-Bold')
