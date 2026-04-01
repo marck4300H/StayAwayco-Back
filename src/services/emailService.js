@@ -69,16 +69,24 @@ const descargarImagen = async (url) => {
 const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
   return new Promise(async (resolve, reject) => {
     try {
-      // Tamaño boleto: 3.5" x 7" (formato físico típico de rifas colombianas)
-      const BOLETO_W = 252; // 3.5" a 72dpi
-      const BOLETO_H = 504; // 7" a 72dpi
-      const COLS     = 2;
-      const MARGIN   = 20;
-      const GAP      = 10;
+      const CM = 28.35; // puntos por cm
+
+      // ── Dimensiones exactas del boleto
+      const BOLETO_W = 11 * CM; // 311.85 pt
+      const BOLETO_H = 5  * CM; // 141.75 pt
+      const GAP      = 0.4 * CM; // 11.34 pt — espacio entre boletos
+
+      // ── Página A4
+      const PAGE_W   = 595;
+      const PAGE_H   = 842;
+      const MARGIN_X = (PAGE_W - BOLETO_W) / 2; // centrado horizontal
+      const MARGIN_Y = 1 * CM;
+
+      const POR_PAGINA = Math.floor((PAGE_H - MARGIN_Y * 2) / (BOLETO_H + GAP)); // = 4
 
       const doc = new PDFDocument({
         size: 'A4',
-        margins: { top: 20, bottom: 20, left: 20, right: 20 },
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
         autoFirstPage: false
       });
 
@@ -87,22 +95,12 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Colores corporativos
-      const AZUL_OSCURO  = '#0A369D';
-      const AZUL_MEDIO   = '#4472CA';
-      const AZUL_CLARO   = '#92B4F4';
-      const FONDO_SUAVE  = '#f0f4ff';
-      const BORDE        = '#CFDEE7';
-      const TEXTO_OSCURO = '#1a1a2e';
-      const TEXTO_GRIS   = '#5a6370';
-
-      // Descargar imagen de plantilla si existe
+      // Descargar imagen plantilla
       let imagenPlantilla = null;
       if (rifa.imagen_boleta_url) {
         imagenPlantilla = await descargarImagen(rifa.imagen_boleta_url);
       }
 
-      // Formatear fecha sorteo
       const fechaSorteoStr = rifa.fecha_sorteo
         ? new Date(rifa.fecha_sorteo).toLocaleDateString('es-CO', {
             year: 'numeric', month: 'long', day: 'numeric',
@@ -110,150 +108,125 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
           })
         : 'Por confirmar';
 
-      // Formatear fecha autorización
       const fechaAutorizacion = rifa.fecha_autorizacion
         ? new Date(rifa.fecha_autorizacion).toLocaleDateString('es-CO', {
             year: 'numeric', month: 'long', day: 'numeric'
           })
         : 'Por confirmar';
 
-      // Calcular dígitos para formateo
       const digitosFormato = (rifa.cantidad_numeros - 1).toString().length;
       const formatNum = (n) => n.toString().padStart(digitosFormato, '0');
 
-      // Posiciones de boletos en página A4 (595 x 842)
-      // 2 columnas, filas dinámicas
-      const PAGE_W = 595;
-      const PAGE_H = 842;
-      const startX = MARGIN;
-      const startY = MARGIN;
+      // Zonas internas del boleto
+      const NUM_ZONE_W = 1.5 * CM;  // franja izquierda para el número rotado
+      const DATA_X     = MARGIN_X + NUM_ZONE_W + (0.3 * CM);
+      const DATA_W     = 4.5 * CM;  // columna campos legales
+      const RIGHT_X    = DATA_X + DATA_W + (0.2 * CM); // columna derecha (título + fotos)
+      const RIGHT_W    = BOLETO_W - NUM_ZONE_W - DATA_W - (0.5 * CM) - (0.3 * CM);
+
+      const NEGRO      = '#111111';
+      const GRIS_LABEL = '#777777';
+      const lineH      = 0.75 * CM;
 
       let boletoIndex = 0;
 
       for (const numero of numerosUsuario) {
-        // Calcular posición en página
-        const col    = boletoIndex % COLS;
-        const row    = Math.floor(boletoIndex / COLS);
-        const maxRows = Math.floor((PAGE_H - MARGIN * 2) / (BOLETO_H + GAP));
 
-        if (boletoIndex % (COLS * maxRows) === 0) {
+        if (boletoIndex % POR_PAGINA === 0) {
           doc.addPage();
-          // Header de página
-          doc.rect(0, 0, PAGE_W, 18).fill(AZUL_OSCURO);
-          doc.fontSize(7).fillColor('#ffffff').font('Helvetica')
-             .text(`StayAway Rifas — Boletos oficiales de ${usuario.nombres} ${usuario.apellidos} — ${rifa.titulo}`,
-               0, 5, { align: 'center', width: PAGE_W });
         }
 
-        const pageRow  = Math.floor((boletoIndex % (COLS * maxRows)) / COLS);
-        const bX = startX + col * (BOLETO_W + GAP);
-        const bY = 25 + pageRow * (BOLETO_H + GAP);
+        const posEnPagina = boletoIndex % POR_PAGINA;
+        const bX = MARGIN_X;
+        const bY = MARGIN_Y + posEnPagina * (BOLETO_H + GAP);
 
-        // ── BOLETO ──────────────────────────────────────
-
-        // Fondo del boleto
+        // ── FONDO: imagen plantilla o fallback blanco
         if (imagenPlantilla) {
-          // Si hay plantilla: usarla como fondo
-          doc.image(imagenPlantilla, bX, bY, { width: BOLETO_W, height: BOLETO_H });
-          // Overlay semitransparente para que texto sea legible
-          doc.rect(bX, bY, BOLETO_W, BOLETO_H).fillOpacity(0.55).fill('#ffffff');
-          doc.fillOpacity(1);
+          doc.image(imagenPlantilla, bX, bY, {
+            width:  BOLETO_W,
+            height: BOLETO_H,
+            align:  'center',
+            valign: 'center'
+          });
         } else {
-          // Sin plantilla: diseño puro con PDFKit
+          // Fallback sin plantilla
           doc.rect(bX, bY, BOLETO_W, BOLETO_H)
-             .fillAndStroke(FONDO_SUAVE, AZUL_OSCURO).lineWidth(1.5);
+             .fillAndStroke('#ffffff', NEGRO)
+             .lineWidth(1)
+             .dash(3, { space: 2 });
+          doc.undash();
         }
 
-        // ── FRANJA SUPERIOR (nombre rifa)
-        doc.rect(bX, bY, BOLETO_W, 36).fill(AZUL_OSCURO);
-        doc.fontSize(9).fillColor('#ffffff').font('Helvetica-Bold')
-           .text('StayAway Rifas', bX, bY + 4, { width: BOLETO_W, align: 'center' });
-        doc.fontSize(8).fillColor(AZUL_CLARO).font('Helvetica')
-           .text(rifa.titulo, bX, bY + 16, { width: BOLETO_W, align: 'center' });
+        // ── NÚMERO ROTADO −90° en franja izquierda
+        doc.save();
+        doc.translate(
+          bX + NUM_ZONE_W / 2,
+          bY + BOLETO_H / 2
+        );
+        doc.rotate(-90);
+        doc.fontSize(30)
+           .fillColor(NEGRO)
+           .font('Helvetica-Bold')
+           .text(formatNum(numero), -(BOLETO_H / 2), -18, {
+             width: BOLETO_H,
+             align: 'center',
+             lineBreak: false
+           });
+        doc.restore();
 
-        // ── NÚMERO GRANDE (campo a)
-        doc.rect(bX + 10, bY + 44, BOLETO_W - 20, 68)
-           .fillAndStroke(AZUL_OSCURO, AZUL_OSCURO);
-        doc.fontSize(7).fillColor(AZUL_CLARO).font('Helvetica')
-           .text('NÚMERO DE BOLETA', bX + 10, bY + 50, { width: BOLETO_W - 20, align: 'center' });
-        doc.fontSize(32).fillColor('#ffffff').font('Helvetica-Bold')
-           .text(formatNum(numero), bX + 10, bY + 62, { width: BOLETO_W - 20, align: 'center' });
+        // ── CAMPOS LEGALES (columna central)
+        let cy = bY + (0.18 * CM);
 
-        // ── SECCIÓN: VALOR (campo b)
-        let cy = bY + 122;
-        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE);
-        cy += 5;
-        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
-           .text('VALOR DE VENTA AL PÚBLICO', bX + 8, cy);
-        doc.fontSize(11).fillColor(AZUL_OSCURO).font('Helvetica-Bold')
-           .text(`$${(rifa.precio_unitario || 0).toLocaleString('es-CO')} COP`, bX + 8, cy + 10);
+        const campo = (label, valor) => {
+          doc.fontSize(5.2)
+             .fillColor(GRIS_LABEL)
+             .font('Helvetica-Bold')
+             .text(label, DATA_X, cy, { width: DATA_W, lineBreak: false });
+          cy += 0.22 * CM;
+          doc.fontSize(6.8)
+             .fillColor(NEGRO)
+             .font('Helvetica-Bold')
+             .text(valor || '—', DATA_X, cy, { width: DATA_W });
+          cy += lineH;
+        };
 
-        // ── SECCIÓN: SORTEO (campos c + d)
-        cy += 32;
-        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 5;
-        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
-           .text('LUGAR, FECHA Y HORA DEL SORTEO', bX + 8, cy);
-        doc.fontSize(8).fillColor(TEXTO_OSCURO).font('Helvetica')
-           .text(fechaSorteoStr, bX + 8, cy + 10, { width: BOLETO_W - 16 });
+        campo('VALOR VENTA AL PÚBLICO:',
+          `$${(rifa.precio_unitario || 0).toLocaleString('es-CO')} COP`);
 
-        cy += 28;
-        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
-           .text('LOTERÍA DE REFERENCIA', bX + 8, cy);
-        doc.fontSize(8).fillColor(AZUL_OSCURO).font('Helvetica-Bold')
-           .text(rifa.loteria_referencia || 'Por confirmar', bX + 8, cy + 10);
+        campo('LUGAR, HORA Y FECHA DEL SORTEO:', fechaSorteoStr);
 
-        // ── SECCIÓN: CADUCIDAD (campo e)
-        cy += 28;
-        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 5;
-        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
-           .text('TÉRMINO DE CADUCIDAD DEL PREMIO', bX + 8, cy);
-        doc.fontSize(8).fillColor(TEXTO_OSCURO).font('Helvetica')
-           .text(rifa.termino_caducidad || '30 días hábiles después del sorteo', bX + 8, cy + 10, { width: BOLETO_W - 16 });
+        campo('LOTERÍA DE REFERENCIA:', rifa.loteria_referencia || '—');
 
-        // ── SECCIÓN: RESOLUCIÓN COLJUEGOS (campo f)
-        cy += 28;
-        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 5;
-        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
-           .text('ACTO ADMINISTRATIVO DE AUTORIZACIÓN', bX + 8, cy);
-        doc.fontSize(7.5).fillColor(TEXTO_OSCURO).font('Helvetica')
-           .text(`Resolución N° ${rifa.numero_resolucion || '___________'}`, bX + 8, cy + 10);
-        doc.fontSize(7.5).fillColor(TEXTO_OSCURO).font('Helvetica')
-           .text(`Fecha: ${fechaAutorizacion}`, bX + 8, cy + 21);
+        campo('TÉRMINO DE CADUCIDAD DEL PREMIO:',
+          rifa.termino_caducidad || '30 días hábiles después del sorteo');
 
-        // ── SECCIÓN: PREMIOS (campos g + h)
-        cy += 42;
-        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 5;
-        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
-           .text('DESCRIPCIÓN Y VALOR DE LOS PREMIOS', bX + 8, cy);
-        doc.fontSize(7.5).fillColor(TEXTO_OSCURO).font('Helvetica')
-           .text(rifa.descripcion_premios || rifa.descripcion || 'Ver descripción en stayaway.com.co', bX + 8, cy + 10, { width: BOLETO_W - 16, height: 28 });
-        doc.fontSize(8).fillColor(AZUL_OSCURO).font('Helvetica-Bold')
-           .text(`Valor total premios: $${(rifa.valor_premios || 0).toLocaleString('es-CO')} COP`, bX + 8, cy + 38);
+        campo('ACTO ADMINISTRATIVO DE AUTORIZACIÓN:',
+          `Res. N° ${rifa.numero_resolucion || '___'}  Fecha: ${fechaAutorizacion}`);
 
-        // ── SECCIÓN: RESPONSABLE (campos i)
-        cy += 56;
-        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 5;
-        doc.fontSize(6.5).fillColor(TEXTO_GRIS).font('Helvetica-Bold')
-           .text('RESPONSABLE DE LA RIFA', bX + 8, cy);
-        doc.fontSize(7.5).fillColor(TEXTO_OSCURO).font('Helvetica')
-           .text(rifa.responsable_nombre || 'StayAway S.A.S.', bX + 8, cy + 10);
-        doc.fontSize(7).fillColor(TEXTO_GRIS).font('Helvetica')
-           .text(`${rifa.responsable_id || ''} — ${rifa.responsable_domicilio || 'Cali, Valle del Cauca'}`, bX + 8, cy + 20, { width: BOLETO_W - 16 });
+        campo('RESPONSABLE DE LA RIFA:',
+          `${rifa.responsable_nombre || 'StayAway S.A.S.'}  ${rifa.responsable_id || ''}`);
 
-        // ── SECCIÓN: PORTADOR (campo k)
-        cy += 38;
-        doc.rect(bX, cy, BOLETO_W, 28).fill(AZUL_OSCURO);
-        doc.fontSize(7).fillColor('#ffffff').font('Helvetica-Bold')
-           .text('PREMIO NO PAGADERO AL PORTADOR', bX, cy + 5, { width: BOLETO_W, align: 'center' });
-        doc.fontSize(6.5).fillColor(AZUL_CLARO).font('Helvetica')
-           .text('El ganador debe identificarse con documento original', bX, cy + 15, { width: BOLETO_W, align: 'center' });
+        // Titular al pie del boleto
+        doc.fontSize(5)
+           .fillColor(GRIS_LABEL)
+           .font('Helvetica')
+           .text(
+             `Titular: ${usuario.nombres} ${usuario.apellidos}  |  ${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`,
+             DATA_X,
+             bY + BOLETO_H - (0.35 * CM),
+             { width: DATA_W, lineBreak: false }
+           );
 
-        // ── DATOS DEL COMPRADOR (footer del boleto)
-        cy += 34;
-        doc.rect(bX, cy, BOLETO_W, 1).fill(BORDE); cy += 4;
-        doc.fontSize(6).fillColor(TEXTO_GRIS).font('Helvetica')
-           .text(`Titular: ${usuario.nombres} ${usuario.apellidos}  |  Doc: ${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`,
-             bX + 4, cy, { width: BOLETO_W - 8, align: 'center' });
+        // ── COLUMNA DERECHA: título de la rifa
+        doc.fontSize(13)
+           .fillColor(NEGRO)
+           .font('Helvetica-Bold')
+           .text(
+             rifa.titulo,
+             RIGHT_X,
+             bY + (1.4 * CM),
+             { width: RIGHT_W, align: 'center' }
+           );
 
         boletoIndex++;
       }
