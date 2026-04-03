@@ -51,15 +51,16 @@ inicializarResend();
 /**
  * 📄 Descargar imagen desde URL (para plantilla del boleto)
  */
-const descargarImagen = async (url) => {
-  try {
-    const axios = (await import('axios')).default;
-    const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 });
-    return Buffer.from(response.data);
-  } catch (err) {
-    console.warn('⚠️ No se pudo descargar imagen de plantilla:', err.message);
-    return null;
-  }
+const descargarImagen = (url) => {
+  return new Promise((resolve, reject) => {
+    const protocolo = url.startsWith('https') ? https : http;
+    protocolo.get(url, (res) => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
 };
 
 /**
@@ -85,7 +86,9 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       const doc = new PDFDocument({
         size: 'A4',
         margins: { top: 0, bottom: 0, left: 0, right: 0 },
-        autoFirstPage: false
+        autoFirstPage: false,
+        compress: true,      // ✅ PDF más pequeño
+        bufferPages: false   // ✅ streaming, no acumula en RAM
       });
 
       const chunks = [];
@@ -93,11 +96,19 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       doc.on('end',  () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
+      // ✅ Descargar imagen UNA sola vez
       let imagenPlantilla = null;
       if (rifa.imagen_boleta_url) {
-        imagenPlantilla = await descargarImagen(rifa.imagen_boleta_url);
+        console.log('🖼️ Descargando imagen plantilla...');
+        try {
+          imagenPlantilla = await descargarImagen(rifa.imagen_boleta_url);
+          console.log('✅ Imagen plantilla lista');
+        } catch (imgError) {
+          console.warn('⚠️ No se pudo descargar imagen plantilla:', imgError.message);
+        }
       }
 
+      // ✅ Pre-calcular strings estáticos (fuera del loop)
       const fechaSorteoStr = rifa.fecha_sorteo
         ? new Date(rifa.fecha_sorteo).toLocaleDateString('es-CO', {
             year: 'numeric', month: 'long', day: 'numeric',
@@ -111,30 +122,55 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
           })
         : 'Por confirmar';
 
-      const digitosFormato = (rifa.cantidad_numeros - 1).toString().length;
-      const formatNum = (n) => n.toString().padStart(digitosFormato, '0');
+      const digitosFormato  = (rifa.cantidad_numeros - 1).toString().length;
+      const formatNum       = (n) => n.toString().padStart(digitosFormato, '0');
 
-      // ── Zonas internas
-      const NUM_ZONE_W = 1.4 * CM;
-      const SEP        = 0.25 * CM;
-      const DATA_X     = MARGIN_X + NUM_ZONE_W + SEP;
-      const DATA_W     = 4.2 * CM;
-      const RIGHT_X    = DATA_X + DATA_W + (0.15 * CM);
-      const RIGHT_W    = BOLETO_W - NUM_ZONE_W - SEP - DATA_W - (0.15 * CM) - (0.35 * CM);
+      const strValor        = `$${(rifa.precio_unitario || 0).toLocaleString('es-CO')} COP`;
+      const strLoteria      = rifa.loteria_referencia    || '—';
+      const strCaducidad    = rifa.termino_caducidad     || '30 días hábiles';
+      const strActoAdmin    = `Res. N° ${rifa.numero_resolucion || '___'}  Fecha: ${fechaAutorizacion}`;
+      const strComprador    = `${usuario.nombres} ${usuario.apellidos}  |  ${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`;
+      const strPie          = `Responsable: ${rifa.responsable_nombre || 'StayAway S.A.S.'}${rifa.responsable_id ? ' | ' + rifa.responsable_id : ''}${rifa.responsable_domicilio ? ' — ' + rifa.responsable_domicilio : ''}`;
 
-      const NEGRO      = '#111111';
-      const GRIS_LABEL = '#666666';
+      // ✅ Zonas internas
+      const NUM_ZONE_W  = 1.4 * CM;
+      const SEP         = 0.25 * CM;
+      const DATA_X      = MARGIN_X + NUM_ZONE_W + SEP;
+      const DATA_W      = 4.2 * CM;
+      const RIGHT_X     = DATA_X + DATA_W + (0.15 * CM);
+      const RIGHT_W     = BOLETO_W - NUM_ZONE_W - SEP - DATA_W - (0.15 * CM) - (0.35 * CM);
 
-      const F_LABEL    = 4.8;
-      const F_VALUE    = 6.2;
-      const F_NUM      = 28;
-      const F_TITULO   = 11;
-      const F_PIE      = 4.5;
+      const NEGRO       = '#111111';
+      const GRIS_LABEL  = '#666666';
+      const F_LABEL     = 4.8;
+      const F_VALUE     = 6.2;
+      const F_NUM       = 28;
+      const F_TITULO    = 11;
+      const F_PIE       = 4.5;
+      const FIELD_H_1   = 0.62 * CM;
+      const FIELD_H_2   = 0.90 * CM;
 
-      // Altura base por campo — valores de 1 línea
-      // Para valores que pueden tener 2 líneas usamos campo_largo()
-      const FIELD_H_1  = 0.62 * CM;  // campo 1 línea
-      const FIELD_H_2  = 0.90 * CM;  // campo 2 líneas (sorteo, acto admin)
+      // ✅ Posiciones Y relativas al bY del boleto (pre-calculadas)
+      const PAD_TOP = 0.12 * CM;
+      const posY = [
+        PAD_TOP,
+        PAD_TOP + FIELD_H_1,
+        PAD_TOP + FIELD_H_1 + FIELD_H_2,
+        PAD_TOP + FIELD_H_1 * 2 + FIELD_H_2,
+        PAD_TOP + FIELD_H_1 * 3 + FIELD_H_2,
+        PAD_TOP + FIELD_H_1 * 3 + FIELD_H_2 * 2,
+      ];
+
+      const dibujarCampo = (label, valor, x, y, w, largo = false) => {
+        doc.fontSize(F_LABEL).fillColor(GRIS_LABEL).font('Helvetica-Bold')
+           .text(label, x, y, { width: w, lineBreak: false });
+        doc.fontSize(F_VALUE).fillColor(NEGRO).font('Helvetica-Bold')
+           .text(valor, x, y + (F_LABEL + 1.5), {
+             width: w,
+             lineBreak: largo,
+             ...(largo && { height: F_VALUE * 2 + 4 })
+           });
+      };
 
       let boletoIndex = 0;
 
@@ -148,10 +184,7 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
 
         // ── Fondo / plantilla
         if (imagenPlantilla) {
-          doc.image(imagenPlantilla, bX, bY, {
-            width:  BOLETO_W,
-            height: BOLETO_H
-          });
+          doc.image(imagenPlantilla, bX, bY, { width: BOLETO_W, height: BOLETO_H });
         } else {
           doc.rect(bX, bY, BOLETO_W, BOLETO_H)
              .fillAndStroke('#ffffff', NEGRO).lineWidth(1)
@@ -163,94 +196,37 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
         doc.save();
         doc.translate(bX + NUM_ZONE_W / 2, bY + BOLETO_H / 2);
         doc.rotate(-90);
-        doc.fontSize(F_NUM)
-           .fillColor(NEGRO)
-           .font('Helvetica-Bold')
+        doc.fontSize(F_NUM).fillColor(NEGRO).font('Helvetica-Bold')
            .text(formatNum(numero), -(BOLETO_H / 2), -F_NUM / 2, {
-             width: BOLETO_H,
-             align: 'center',
-             lineBreak: false
+             width: BOLETO_H, align: 'center', lineBreak: false
            });
         doc.restore();
 
-        // ── Helpers de campo
-        let cy = bY + (0.12 * CM);
-
-        // Campo valor corto (1 línea) — sin lineBreak
-        const campo = (label, valor) => {
-          doc.fontSize(F_LABEL).fillColor(GRIS_LABEL).font('Helvetica-Bold')
-             .text(label, DATA_X, cy, { width: DATA_W, lineBreak: false });
-          doc.fontSize(F_VALUE).fillColor(NEGRO).font('Helvetica-Bold')
-             .text(valor || '—', DATA_X, cy + (F_LABEL + 1.5), {
-               width: DATA_W,
-               lineBreak: false  // 1 línea
-             });
-          cy += FIELD_H_1;
-        };
-
-        // Campo valor largo (hasta 2 líneas) — con lineBreak
-        const campoLargo = (label, valor) => {
-          doc.fontSize(F_LABEL).fillColor(GRIS_LABEL).font('Helvetica-Bold')
-             .text(label, DATA_X, cy, { width: DATA_W, lineBreak: false });
-          doc.fontSize(F_VALUE).fillColor(NEGRO).font('Helvetica-Bold')
-             .text(valor || '—', DATA_X, cy + (F_LABEL + 1.5), {
-               width: DATA_W,
-               lineBreak: true,   // permite 2 líneas
-               height: F_VALUE * 2 + 4
-             });
-          cy += FIELD_H_2;
-        };
-
         // ── Campos legales
-        // 1. Valor — corto
-        campo('VALOR VENTA AL PÚBLICO:',
-          `$${(rifa.precio_unitario || 0).toLocaleString('es-CO')} COP`);
+        dibujarCampo('VALOR VENTA AL PÚBLICO:',              strValor,       DATA_X, bY + posY[0], DATA_W, false);
+        dibujarCampo('LUGAR, HORA Y FECHA DEL SORTEO:',      fechaSorteoStr, DATA_X, bY + posY[1], DATA_W, true);
+        dibujarCampo('LOTERÍA DE REFERENCIA:',               strLoteria,     DATA_X, bY + posY[2], DATA_W, false);
+        dibujarCampo('TÉRMINO DE CADUCIDAD DEL PREMIO:',     strCaducidad,   DATA_X, bY + posY[3], DATA_W, false);
+        dibujarCampo('ACTO ADMINISTRATIVO DE AUTORIZACIÓN:', strActoAdmin,   DATA_X, bY + posY[4], DATA_W, true);
+        dibujarCampo('COMPRADOR:',                           strComprador,   DATA_X, bY + posY[5], DATA_W, false);
 
-        // 2. Sorteo — puede ser largo
-        campoLargo('LUGAR, HORA Y FECHA DEL SORTEO:', fechaSorteoStr);
+        // ── Pie: responsable legal
+        doc.fontSize(F_PIE).fillColor(GRIS_LABEL).font('Helvetica')
+           .text(strPie, DATA_X, bY + BOLETO_H - (0.28 * CM), {
+             width: DATA_W, lineBreak: false
+           });
 
-        // 3. Lotería — corto
-        campo('LOTERÍA DE REFERENCIA:', rifa.loteria_referencia || '—');
-
-        // 4. Caducidad — corto
-        campo('TÉRMINO DE CADUCIDAD DEL PREMIO:',
-          rifa.termino_caducidad || '30 días hábiles');
-
-        // 5. Acto admin — puede ser largo
-        campoLargo('ACTO ADMINISTRATIVO DE AUTORIZACIÓN:',
-          `Res. N° ${rifa.numero_resolucion || '___'}  Fecha: ${fechaAutorizacion}`);
-
-        // 6. ← COMPRADOR (antes era "responsable de la rifa")
-        campo('COMPRADOR:',
-          `${usuario.nombres} ${usuario.apellidos}  |  ${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`);
-
-        // ── Pie del boleto: RESPONSABLE LEGAL de la rifa
-        doc.fontSize(F_PIE)
-           .fillColor(GRIS_LABEL)
-           .font('Helvetica')
-           .text(
-             `Responsable: ${rifa.responsable_nombre || 'StayAway S.A.S.'}  ${rifa.responsable_id ? '| ' + rifa.responsable_id : ''}  ${rifa.responsable_domicilio ? '— ' + rifa.responsable_domicilio : ''}`,
-             DATA_X,
-             bY + BOLETO_H - (0.28 * CM),
-             { width: DATA_W, lineBreak: false }
-           );
-
-        // ── Título en columna derecha — centrado vertical
-        const tituloY = bY + (BOLETO_H / 2) - (0.6 * CM);
-        doc.fontSize(F_TITULO)
-           .fillColor(NEGRO)
-           .font('Helvetica-Bold')
-           .text(
-             rifa.titulo,
-             RIGHT_X,
-             tituloY,
-             { width: RIGHT_W, align: 'center' }
-           );
+        // ── Título columna derecha
+        doc.fontSize(F_TITULO).fillColor(NEGRO).font('Helvetica-Bold')
+           .text(rifa.titulo, RIGHT_X, bY + (BOLETO_H / 2) - (0.6 * CM), {
+             width: RIGHT_W, align: 'center'
+           });
 
         boletoIndex++;
       }
 
       doc.end();
+
     } catch (error) {
       reject(error);
     }

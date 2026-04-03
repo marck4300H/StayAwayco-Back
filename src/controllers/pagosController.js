@@ -558,7 +558,7 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
       usuarioId = usuario.id;
       numeroDocumento = doc;
       usuarioCompleto = usuario;
-      
+
       await supabaseAdmin
         .from("transacciones_pagos")
         .update({
@@ -586,36 +586,19 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
 
     // ✅ 3. ASIGNAR NÚMEROS ALEATORIOS (COMPRADOS + GRATIS)
     const numerosAsignados = await asignarNumerosAleatorios(
-      rifa_id, 
-      cantidadTotal,  // ← CANTIDAD TOTAL (comprados + gratis)
-      usuarioId, 
-      numeroDocumento, 
+      rifa_id,
+      cantidadTotal,
+      usuarioId,
+      numeroDocumento,
       transaccion.referencia,
       rifa.cantidad_numeros
     );
 
     console.log(`✅ Compra procesada exitosamente - Usuario: ${usuarioId}, Números entregados: ${numerosAsignados.length}`);
 
-    // ✅ 4. ENVIAR CORREO DE CONFIRMACIÓN CON INFO DE PROMOCIÓN
-    if (usuarioCompleto) {
-      try {
-        const transaccionConRifa = {
-          ...transaccion,
-          rifaTitulo: rifa.titulo,
-          cantidad: cantidad,
-          numerosGratis: numerosGratis, // ← NUEVO: para mostrar en el correo
-          cantidadTotal: cantidadTotal,  // ← NUEVO: total entregado
-          total: transaccion.valor_total
-        };
-
-        await enviarCorreoCompraExitosa(usuarioCompleto, transaccionConRifa, numerosAsignados);
-        console.log("📧 Correo de compra enviado exitosamente");
-      } catch (emailError) {
-        console.error("❌ Error enviando correo de compra:", emailError);
-      }
-    }
-
-    // ✅ 5. ACTUALIZAR LA TRANSACCIÓN CON LOS NÚMEROS ASIGNADOS
+    // ✅ 4. ACTUALIZAR LA TRANSACCIÓN CON LOS NÚMEROS ASIGNADOS
+    //    Se hace ANTES del correo para que si el correo falla,
+    //    la transacción ya esté marcada como procesada
     await supabaseAdmin
       .from("transacciones_pagos")
       .update({
@@ -628,6 +611,46 @@ const procesarCompraExitosa = async (transaccion, orderData) => {
         }
       })
       .eq("id", transaccion.id);
+
+    // ✅ 5. ENVIAR CORREO EN BACKGROUND (sin bloquear ni generar timeout)
+    if (usuarioCompleto) {
+      const transaccionConRifa = {
+        ...transaccion,
+        rifaTitulo: rifa.titulo,
+        cantidad: cantidad,
+        numerosGratis: numerosGratis,
+        cantidadTotal: cantidadTotal,
+        total: transaccion.valor_total
+      };
+
+      // ✅ Obtener rifa completa para el PDF (con todos los campos legales)
+      supabaseAdmin
+        .from("rifas")
+        .select(`
+          id, titulo, cantidad_numeros, precio_unitario, fecha_sorteo,
+          loteria_referencia, descripcion, descripcion_premios, valor_premios,
+          numero_resolucion, fecha_autorizacion, termino_caducidad,
+          responsable_nombre, responsable_domicilio, responsable_id,
+          imagen_boleta_url
+        `)
+        .eq("id", rifa_id)
+        .single()
+        .then(({ data: rifaCompleta, error: rfError }) => {
+          if (rfError || !rifaCompleta) {
+            console.error("⚠️ No se pudo obtener rifa completa para el PDF:", rfError);
+            rifaCompleta = rifa; // fallback a los datos básicos
+          }
+
+          // Fire and forget — el webhook ya respondió, esto corre en background
+          enviarCorreoCompraExitosa(usuarioCompleto, transaccionConRifa, numerosAsignados, rifaCompleta)
+            .then(() => {
+              console.log("📧 Correo de compra enviado exitosamente (background)");
+            })
+            .catch((emailError) => {
+              console.error("⚠️ Error enviando correo en background:", emailError.message || emailError);
+            });
+        });
+    }
 
   } catch (error) {
     console.error("❌ Error procesando compra exitosa:", error);
