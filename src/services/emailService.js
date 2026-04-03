@@ -1,6 +1,11 @@
 import { Resend } from 'resend';
 import PDFDocument from 'pdfkit';
 import { supabaseAdmin } from "../../supabaseAdminClient.js";
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -60,9 +65,22 @@ const descargarImagen = async (url) => {
   return Buffer.from(arrayBuffer);
 };
 
+// ✅ Caché de imagen a nivel de módulo — se carga UNA sola vez
+let _imagenCache = null;
+const getImagenPlantilla = () => {
+  if (_imagenCache) return _imagenCache;
+  try {
+    _imagenCache = readFileSync(path.join(__dirname, '../assets/boleto_plantilla.png'));
+    console.log('🖼️ Imagen plantilla cargada en caché');
+  } catch {
+    // No hay archivo local, se descargará desde URL
+  }
+  return _imagenCache;
+};
+
 /**
  * 📄 Generar PDF de boletos oficiales Coljuegos
- * Cada número se renderiza como un boleto completo con todos los campos legales
+ * Todos los números son incluidos — requerimiento legal
  */
 const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
   return new Promise(async (resolve, reject) => {
@@ -84,8 +102,8 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
         size: 'A4',
         margins: { top: 0, bottom: 0, left: 0, right: 0 },
         autoFirstPage: false,
-        compress: true,      // ✅ PDF más pequeño
-        bufferPages: false   // ✅ streaming, no acumula en RAM
+        compress: true,
+        bufferPages: false
       });
 
       const chunks = [];
@@ -93,15 +111,18 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       doc.on('end',  () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // ✅ Descargar imagen UNA sola vez
-      let imagenPlantilla = null;
-      if (rifa.imagen_boleta_url) {
-        console.log('🖼️ Descargando imagen plantilla...');
+      // ✅ Imagen desde caché (no re-lee el archivo en cada llamada)
+      let imagenPlantilla = getImagenPlantilla();
+
+      // Si no hay archivo local, descargar desde URL y guardar en caché
+      if (!imagenPlantilla && rifa.imagen_boleta_url) {
+        console.log('🖼️ Descargando imagen plantilla desde URL...');
         try {
           imagenPlantilla = await descargarImagen(rifa.imagen_boleta_url);
-          console.log('✅ Imagen plantilla lista');
+          _imagenCache = imagenPlantilla; // guardar para siguientes llamadas
+          console.log('✅ Imagen plantilla lista y cacheada');
         } catch (imgError) {
-          console.warn('⚠️ No se pudo descargar imagen plantilla:', imgError.message);
+          console.warn('⚠️ No se pudo cargar imagen plantilla:', imgError.message);
         }
       }
 
@@ -119,35 +140,33 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
           })
         : 'Por confirmar';
 
-      const digitosFormato  = (rifa.cantidad_numeros - 1).toString().length;
-      const formatNum       = (n) => n.toString().padStart(digitosFormato, '0');
+      const digitosFormato = (rifa.cantidad_numeros - 1).toString().length;
+      const formatNum      = (n) => n.toString().padStart(digitosFormato, '0');
 
-      const strValor        = `$${(rifa.precio_unitario || 0).toLocaleString('es-CO')} COP`;
-      const strLoteria      = rifa.loteria_referencia    || '—';
-      const strCaducidad    = rifa.termino_caducidad     || '30 días hábiles';
-      const strActoAdmin    = `Res. N° ${rifa.numero_resolucion || '___'}  Fecha: ${fechaAutorizacion}`;
-      const strComprador    = `${usuario.nombres} ${usuario.apellidos}  |  ${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`;
-      const strPie          = `Responsable: ${rifa.responsable_nombre || 'StayAway S.A.S.'}${rifa.responsable_id ? ' | ' + rifa.responsable_id : ''}${rifa.responsable_domicilio ? ' — ' + rifa.responsable_domicilio : ''}`;
+      const strValor      = `$${(rifa.precio_unitario || 0).toLocaleString('es-CO')} COP`;
+      const strLoteria    = rifa.loteria_referencia  || '—';
+      const strCaducidad  = rifa.termino_caducidad   || '30 días hábiles';
+      const strActoAdmin  = `Res. N° ${rifa.numero_resolucion || '___'}  Fecha: ${fechaAutorizacion}`;
+      const strComprador  = `${usuario.nombres} ${usuario.apellidos}  |  ${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`;
+      const strPie        = `Responsable: ${rifa.responsable_nombre || 'StayAway S.A.S.'}${rifa.responsable_id ? ' | ' + rifa.responsable_id : ''}${rifa.responsable_domicilio ? ' — ' + rifa.responsable_domicilio : ''}`;
 
-      // ✅ Zonas internas
-      const NUM_ZONE_W  = 1.4 * CM;
-      const SEP         = 0.25 * CM;
-      const DATA_X      = MARGIN_X + NUM_ZONE_W + SEP;
-      const DATA_W      = 4.2 * CM;
-      const RIGHT_X     = DATA_X + DATA_W + (0.15 * CM);
-      const RIGHT_W     = BOLETO_W - NUM_ZONE_W - SEP - DATA_W - (0.15 * CM) - (0.35 * CM);
+      const NUM_ZONE_W = 1.4 * CM;
+      const SEP        = 0.25 * CM;
+      const DATA_X     = MARGIN_X + NUM_ZONE_W + SEP;
+      const DATA_W     = 4.2 * CM;
+      const RIGHT_X    = DATA_X + DATA_W + (0.15 * CM);
+      const RIGHT_W    = BOLETO_W - NUM_ZONE_W - SEP - DATA_W - (0.15 * CM) - (0.35 * CM);
 
-      const NEGRO       = '#111111';
-      const GRIS_LABEL  = '#666666';
-      const F_LABEL     = 4.8;
-      const F_VALUE     = 6.2;
-      const F_NUM       = 28;
-      const F_TITULO    = 11;
-      const F_PIE       = 4.5;
-      const FIELD_H_1   = 0.62 * CM;
-      const FIELD_H_2   = 0.90 * CM;
+      const NEGRO      = '#111111';
+      const GRIS_LABEL = '#666666';
+      const F_LABEL    = 4.8;
+      const F_VALUE    = 6.2;
+      const F_NUM      = 28;
+      const F_TITULO   = 11;
+      const F_PIE      = 4.5;
+      const FIELD_H_1  = 0.62 * CM;
+      const FIELD_H_2  = 0.90 * CM;
 
-      // ✅ Posiciones Y relativas al bY del boleto (pre-calculadas)
       const PAD_TOP = 0.12 * CM;
       const posY = [
         PAD_TOP,
@@ -172,14 +191,12 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       let boletoIndex = 0;
 
       for (const numero of numerosUsuario) {
-
         if (boletoIndex % POR_PAGINA === 0) doc.addPage();
 
         const posEnPagina = boletoIndex % POR_PAGINA;
         const bX = MARGIN_X;
         const bY = MARGIN_Y + posEnPagina * (BOLETO_H + GAP);
 
-        // ── Fondo / plantilla
         if (imagenPlantilla) {
           doc.image(imagenPlantilla, bX, bY, { width: BOLETO_W, height: BOLETO_H });
         } else {
@@ -189,7 +206,6 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
           doc.undash();
         }
 
-        // ── Número rotado −90°
         doc.save();
         doc.translate(bX + NUM_ZONE_W / 2, bY + BOLETO_H / 2);
         doc.rotate(-90);
@@ -199,7 +215,6 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
            });
         doc.restore();
 
-        // ── Campos legales
         dibujarCampo('VALOR VENTA AL PÚBLICO:',              strValor,       DATA_X, bY + posY[0], DATA_W, false);
         dibujarCampo('LUGAR, HORA Y FECHA DEL SORTEO:',      fechaSorteoStr, DATA_X, bY + posY[1], DATA_W, true);
         dibujarCampo('LOTERÍA DE REFERENCIA:',               strLoteria,     DATA_X, bY + posY[2], DATA_W, false);
@@ -207,13 +222,11 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
         dibujarCampo('ACTO ADMINISTRATIVO DE AUTORIZACIÓN:', strActoAdmin,   DATA_X, bY + posY[4], DATA_W, true);
         dibujarCampo('COMPRADOR:',                           strComprador,   DATA_X, bY + posY[5], DATA_W, false);
 
-        // ── Pie: responsable legal
         doc.fontSize(F_PIE).fillColor(GRIS_LABEL).font('Helvetica')
            .text(strPie, DATA_X, bY + BOLETO_H - (0.28 * CM), {
              width: DATA_W, lineBreak: false
            });
 
-        // ── Título columna derecha
         doc.fontSize(F_TITULO).fillColor(NEGRO).font('Helvetica-Bold')
            .text(rifa.titulo, RIGHT_X, bY + (BOLETO_H / 2) - (0.6 * CM), {
              width: RIGHT_W, align: 'center'
@@ -234,43 +247,48 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
 /**
  * 📧 Enviar correo de compra exitosa con PDF adjunto - CON NÚMEROS GRATIS
  */
-export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsignados) => {
+export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsignados, rifaCompleta = null) => {
   try {
     console.log(`📧 Enviando correo de compra a: ${usuario.correo_electronico}`);
     console.log(`   - Números comprados: ${transaccion.cantidad}`);
     console.log(`   - Números gratis: ${transaccion.numerosGratis || 0}`);
     console.log(`   - Total entregado: ${numerosAsignados.length}`);
 
-    // ✅ Obtener rifa completa con todos los campos nuevos de Coljuegos
-    const { data: rifa, error: rifaError } = await supabaseAdmin
-      .from('rifas')
-      .select(`
-        id, titulo, cantidad_numeros, precio_unitario, fecha_sorteo,
-        loteria_referencia, descripcion, descripcion_premios, valor_premios,
-        numero_resolucion, fecha_autorizacion, termino_caducidad,
-        responsable_nombre, responsable_domicilio, responsable_id,
-        imagen_boleta_url
-      `)
-      .eq('id', transaccion.rifa_id)
-      .single();
+    // Usar rifa pasada como parámetro o buscarla
+    let rifaData = rifaCompleta;
+    if (!rifaData) {
+      const { data: rifa, error: rifaError } = await supabaseAdmin
+        .from('rifas')
+        .select(`
+          id, titulo, cantidad_numeros, precio_unitario, fecha_sorteo,
+          loteria_referencia, descripcion, descripcion_premios, valor_premios,
+          numero_resolucion, fecha_autorizacion, termino_caducidad,
+          responsable_nombre, responsable_domicilio, responsable_id,
+          imagen_boleta_url
+        `)
+        .eq('id', transaccion.rifa_id)
+        .single();
 
-    if (rifaError || !rifa) {
-      console.warn('⚠️ No se pudo obtener info completa de la rifa, usando datos básicos');
+      if (rifaError || !rifa) {
+        console.warn('⚠️ No se pudo obtener info completa de la rifa, usando datos básicos');
+      }
+
+      rifaData = rifa || {
+        titulo: transaccion.rifaTitulo,
+        cantidad_numeros: transaccion.cantidad,
+        precio_unitario: transaccion.precio_unitario
+      };
     }
 
-    const rifaData = rifa || {
-      titulo: transaccion.rifaTitulo,
-      cantidad_numeros: transaccion.cantidad,
-      precio_unitario: transaccion.precio_unitario
-    };
-
-    console.log('📄 Generando PDF de boletos oficiales...');
+    // ✅ TODOS los boletos en el PDF — requerimiento legal
+    console.log(`📄 Generando PDF con ${numerosAsignados.length} boletos oficiales...`);
     const pdfBuffer = await generarPDFBoletos(usuario, rifaData, numerosAsignados);
     console.log('✅ PDF generado exitosamente');
 
-    const pdfBase64 = pdfBuffer.toString('base64');
+    const pdfBase64   = pdfBuffer.toString('base64');
     const htmlContent = generarTemplateCompra(usuario, transaccion, numerosAsignados);
 
+    console.log('📤 Enviando correo via Resend...');
     const { data, error } = await resend.emails.send({
       from: 'StayAway Rifas <noreply@stayaway.com.co>',
       to: [usuario.correo_electronico],
