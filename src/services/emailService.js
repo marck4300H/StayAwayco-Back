@@ -51,16 +51,13 @@ inicializarResend();
 /**
  * 📄 Descargar imagen desde URL (para plantilla del boleto)
  */
-const descargarImagen = (url) => {
-  return new Promise((resolve, reject) => {
-    const protocolo = url.startsWith('https') ? https : http;
-    protocolo.get(url, (res) => {
-      const chunks = [];
-      res.on('data', chunk => chunks.push(chunk));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', reject);
-    }).on('error', reject);
-  });
+const descargarImagen = async (url) => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Error descargando imagen: ${response.status} ${response.statusText}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 };
 
 /**
