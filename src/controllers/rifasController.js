@@ -8,19 +8,7 @@ export const upload = multer({ storage });
 
 export const crearRifa = async (req, res) => {
   try {
-    const { 
-      titulo, 
-      descripcion, 
-      cantidad_numeros, 
-      precio_unitario, 
-      cantidad_minima,
-      paquetes_promocion,
-      fecha_sorteo // ← NUEVO
-    } = req.body;
-    
-    const archivo = req.file;
-
-    console.log("📝 Datos recibidos para crear rifa:", {
+    const {
       titulo,
       descripcion,
       cantidad_numeros,
@@ -28,132 +16,115 @@ export const crearRifa = async (req, res) => {
       cantidad_minima,
       paquetes_promocion,
       fecha_sorteo,
-      archivo: archivo ? `Sí (${archivo.originalname})` : 'No'
+      loteria_referencia,
+      // ── Campos legales ──
+      numero_resolucion,
+      fecha_autorizacion,
+      termino_caducidad,
+      responsable_nombre,
+      responsable_domicilio,
+      responsable_id,
+      descripcion_premios,
+      valor_premios,
+      es_pagadero_portador,
+    } = req.body;
+
+    // Soporte para multer con campos múltiples (upload.fields) o campo único (upload.single)
+    const archivoPortada = req.files?.imagen_url?.[0]        ?? req.file ?? null;
+    const archivoBoleta  = req.files?.imagen_boleta_url?.[0] ?? null;
+
+    console.log("📝 Datos recibidos para crear rifa:", {
+      titulo, descripcion, cantidad_numeros, precio_unitario, cantidad_minima,
+      paquetes_promocion, fecha_sorteo, loteria_referencia,
+      numero_resolucion, fecha_autorizacion, termino_caducidad,
+      responsable_nombre, responsable_domicilio, responsable_id,
+      descripcion_premios, valor_premios, es_pagadero_portador,
+      archivoPortada: archivoPortada ? `Sí (${archivoPortada.originalname})` : "No",
+      archivoBoleta:  archivoBoleta  ? `Sí (${archivoBoleta.originalname})`  : "No",
     });
 
+    // ── Validaciones obligatorias ──
     if (!titulo || !descripcion || !cantidad_numeros || !precio_unitario || !cantidad_minima) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Faltan campos obligatorios: título, descripción, cantidad de números, precio unitario o cantidad mínima." 
+      return res.status(400).json({
+        success: false,
+        message: "Faltan campos obligatorios: título, descripción, cantidad_numeros, precio_unitario, cantidad_minima.",
       });
     }
-    if (!archivo) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Se requiere una imagen." 
-      });
+    if (!archivoPortada) {
+      return res.status(400).json({ success: false, message: "Se requiere la imagen de portada (campo: imagen_url)." });
     }
 
-    // ✅ VALIDAR QUE LA CANTIDAD SEA 10000 O 100000
-    const cantidad = parseInt(cantidad_numeros, 10);
-    if (cantidad !== 10000 && cantidad !== 100000) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "La cantidad de números debe ser 10,000 o 100,000." 
-      });
+    // ── Validaciones numéricas ──
+    const cantidad    = parseInt(cantidad_numeros, 10);
+    const precio      = parseInt(precio_unitario,  10);
+    const minCantidad = parseInt(cantidad_minima,   10);
+
+    if (cantidad !== 10000 && cantidad !== 100000)
+      return res.status(400).json({ success: false, message: "La cantidad de números debe ser 10,000 o 100,000." });
+    if (precio < 100)
+      return res.status(400).json({ success: false, message: "El precio unitario debe ser al menos $100." });
+    if (minCantidad < 1)
+      return res.status(400).json({ success: false, message: "La cantidad mínima debe ser al menos 1." });
+
+    // ── Validar valor_premios ──
+    let valorPremiosNum = null;
+    if (valor_premios !== undefined && valor_premios !== null && valor_premios !== "") {
+      valorPremiosNum = parseFloat(valor_premios);
+      if (isNaN(valorPremiosNum) || valorPremiosNum < 0)
+        return res.status(400).json({ success: false, message: "valor_premios debe ser un número mayor o igual a 0." });
     }
 
-    // ✅ VALIDAR PRECIO UNITARIO Y CANTIDAD MÍNIMA
-    const precio = parseInt(precio_unitario, 10);
-    const minCantidad = parseInt(cantidad_minima, 10);
-    
-    if (precio < 100) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "El precio unitario debe ser al menos $100." 
-      });
+    // ── Validar fecha_autorizacion (solo fecha YYYY-MM-DD) ──
+    let fechaAutorizacionVal = null;
+    if (fecha_autorizacion) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha_autorizacion))
+        return res.status(400).json({ success: false, message: "fecha_autorizacion debe tener formato YYYY-MM-DD." });
+      fechaAutorizacionVal = fecha_autorizacion;
     }
 
-    if (minCantidad < 1) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "La cantidad mínima debe ser al menos 1." 
-      });
+    // ── Validar fecha_sorteo ──
+    const { ok: okFecha, valor: fechaSorteoValidada, mensaje: mensajeFecha } = validarFechaSorteo(fecha_sorteo);
+    if (!okFecha) return res.status(400).json({ success: false, message: mensajeFecha });
+
+    // ── Validar paquetes ──
+    const { ok: okPaquetes, valor: paquetesValidados, mensaje: mensajePaquetes } = validarPaquetes(paquetes_promocion);
+    if (!okPaquetes) return res.status(400).json({ success: false, message: mensajePaquetes });
+
+    // ── Subir imágenes ──
+    console.log("📤 Subiendo imagen de portada a Supabase Storage...");
+    const imagenUrl = await subirImagen(archivoPortada, "rifas");
+
+    let imagenBoletaUrl = null;
+    if (archivoBoleta) {
+      console.log("📤 Subiendo imagen de boleta...");
+      imagenBoletaUrl = await subirImagen(archivoBoleta, "rifas");
     }
 
-    // ✅ VALIDAR FECHA DE SORTEO (OPCIONAL)
-    let fechaSorteoValidada = null;
-    if (fecha_sorteo) {
-      const fecha = new Date(fecha_sorteo);
-      if (isNaN(fecha.getTime())) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "La fecha de sorteo no es válida. Usa formato ISO 8601 (ej: 2026-04-15T20:00:00Z)." 
-        });
-      }
-      if (fecha <= new Date()) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "La fecha de sorteo debe ser una fecha futura." 
-        });
-      }
-      fechaSorteoValidada = fecha.toISOString();
-      console.log("📅 Fecha de sorteo validada:", fechaSorteoValidada);
-    }
-
-    // ✅ VALIDAR PAQUETES DE PROMOCIÓN (SI SE PROPORCIONAN)
-    let paquetesValidados = null;
-    if (paquetes_promocion) {
-      try {
-        const paquetes = typeof paquetes_promocion === 'string' 
-          ? JSON.parse(paquetes_promocion) 
-          : paquetes_promocion;
-
-        ['paquete1', 'paquete2', 'paquete3'].forEach((key, index) => {
-          const paquete = paquetes[key];
-          if (paquete) {
-            if (!paquete.cantidad_compra || !Number.isInteger(paquete.cantidad_compra) || paquete.cantidad_compra < 1) {
-              throw new Error(`Paquete ${index + 1}: cantidad_compra debe ser un número entero mayor a 0`);
-            }
-            if (paquete.numeros_gratis === undefined || !Number.isInteger(paquete.numeros_gratis) || paquete.numeros_gratis < 0) {
-              throw new Error(`Paquete ${index + 1}: numeros_gratis debe ser un número entero mayor o igual a 0`);
-            }
-          }
-        });
-
-        paquetesValidados = paquetes;
-        console.log("✅ Paquetes de promoción validados:", paquetesValidados);
-      } catch (error) {
-        return res.status(400).json({ 
-          success: false, 
-          message: `Error en paquetes_promocion: ${error.message}` 
-        });
-      }
-    }
-
-    const extension = path.extname(archivo.originalname);
-    const filename = `${uuidv4()}${extension}`;
-
-    console.log("📤 Subiendo imagen a Supabase Storage...");
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from("rifas")
-      .upload(filename, archivo.buffer, { 
-        contentType: archivo.mimetype, 
-        upsert: false 
-      });
-    
-    if (uploadError) {
-      console.error("❌ Error subiendo imagen:", uploadError);
-      throw uploadError;
-    }
-
-    const { data: publicUrlData } = supabaseAdmin.storage
-      .from("rifas")
-      .getPublicUrl(filename);
-    const publicUrl = publicUrlData.publicUrl;
-
+    // ── Insertar rifa ──
     console.log("💾 Creando registro de rifa en la base de datos...");
     const { data: rifaData, error: rifaError } = await supabaseAdmin
       .from("rifas")
-      .insert([{ 
-        titulo, 
-        descripcion, 
-        cantidad_numeros: cantidad, 
-        precio_unitario: precio,
-        cantidad_minima: minCantidad,
-        imagen_url: publicUrl,
-        paquetes_promocion: paquetesValidados,
-        fecha_sorteo: fechaSorteoValidada // ← NUEVO
+      .insert([{
+        titulo,
+        descripcion,
+        cantidad_numeros:      cantidad,
+        precio_unitario:       precio,
+        cantidad_minima:       minCantidad,
+        imagen_url:            imagenUrl,
+        paquetes_promocion:    paquetesValidados,
+        fecha_sorteo:          fechaSorteoValidada,
+        loteria_referencia:    loteria_referencia    || null,
+        // ── Campos legales ──
+        numero_resolucion:     numero_resolucion     || null,
+        fecha_autorizacion:    fechaAutorizacionVal,
+        termino_caducidad:     termino_caducidad     || null,
+        responsable_nombre:    responsable_nombre    || null,
+        responsable_domicilio: responsable_domicilio || null,
+        responsable_id:        responsable_id        || null,
+        descripcion_premios:   descripcion_premios   || null,
+        valor_premios:         valorPremiosNum,
+        imagen_boleta_url:     imagenBoletaUrl,
+        es_pagadero_portador:  es_pagadero_portador === true || es_pagadero_portador === "true",
       }])
       .select();
 
@@ -165,27 +136,19 @@ export const crearRifa = async (req, res) => {
     const rifaId = rifaData[0].id;
     console.log(`🎯 Rifa creada con ID: ${rifaId}. Generando ${cantidad} números...`);
 
-    // ✅ GENERAR NÚMEROS
-    const totalNumeros = cantidad;
+    // ── Generar números en lotes de 10,000 ──
     const batchSize = 10000;
-    const batches = Math.ceil(totalNumeros / batchSize);
+    const batches   = Math.ceil(cantidad / batchSize);
 
     for (let i = 0; i < batches; i++) {
       const start = i * batchSize;
-      const end = Math.min(start + batchSize, totalNumeros);
-      
-      const numerosAGenerar = Array.from({ length: end - start }, (_, index) => {
-        const numeroBase = start + index;
-        const numeroFormateado = cantidad === 10000
-          ? numeroBase.toString().padStart(4, '0')
-          : numeroBase.toString().padStart(5, '0');
-        
-        return {
-          rifa_id: rifaId,
-          numero: numeroFormateado,
-          comprado_por: null
-        };
-      });
+      const end   = Math.min(start + batchSize, cantidad);
+
+      const numerosAGenerar = Array.from({ length: end - start }, (_, index) => ({
+        rifa_id:      rifaId,
+        numero:       start + index,
+        comprado_por: null,
+      }));
 
       const { error: numerosError } = await supabaseAdmin
         .from("numeros")
@@ -200,17 +163,11 @@ export const crearRifa = async (req, res) => {
     }
 
     console.log("✅ Rifa y números creados exitosamente");
-    res.json({ 
-      success: true, 
-      message: "Rifa creada con éxito", 
-      rifa: rifaData[0] 
-    });
+    res.json({ success: true, message: "Rifa creada con éxito", rifa: rifaData[0] });
+
   } catch (err) {
     console.error("❌ Error en crearRifa:", err);
-    res.status(500).json({ 
-      success: false, 
-      message: err.message || "Error interno del servidor" 
-    });
+    res.status(500).json({ success: false, message: err.message || "Error interno del servidor" });
   }
 };
 
@@ -307,147 +264,138 @@ export const listarRifas = async (req, res) => {
 export const editarRifa = async (req, res) => {
   try {
     const { id } = req.params;
-    const { 
-      titulo, 
-      descripcion, 
-      cantidad_numeros, 
-      precio_unitario, 
+    const {
+      titulo,
+      descripcion,
+      cantidad_numeros,
+      precio_unitario,
       cantidad_minima,
       paquetes_promocion,
-      fecha_sorteo // ← NUEVO
+      fecha_sorteo,
+      loteria_referencia,
+      // ── Campos legales ──
+      numero_resolucion,
+      fecha_autorizacion,
+      termino_caducidad,
+      responsable_nombre,
+      responsable_domicilio,
+      responsable_id,
+      descripcion_premios,
+      valor_premios,
+      es_pagadero_portador,
     } = req.body;
-    
-    const archivo = req.file;
 
-    console.log("✏️ Editando rifa:", { 
-      id, titulo, descripcion, 
-      cantidad_numeros, precio_unitario, 
-      cantidad_minima, paquetes_promocion, fecha_sorteo
+    const archivoPortada = req.files?.imagen_url?.[0]        ?? req.file ?? null;
+    const archivoBoleta  = req.files?.imagen_boleta_url?.[0] ?? null;
+
+    console.log("✏️ Editando rifa:", {
+      id, titulo, descripcion, cantidad_numeros, precio_unitario, cantidad_minima,
+      paquetes_promocion, fecha_sorteo, loteria_referencia,
+      numero_resolucion, fecha_autorizacion, termino_caducidad,
+      responsable_nombre, responsable_domicilio, responsable_id,
+      descripcion_premios, valor_premios, es_pagadero_portador,
     });
 
-    if (!titulo || !descripcion || !cantidad_numeros || !precio_unitario || !cantidad_minima) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Faltan campos obligatorios." 
-      });
+    // ── Validaciones obligatorias ──
+    if (!titulo || !descripcion || !cantidad_numeros || !precio_unitario || !cantidad_minima)
+      return res.status(400).json({ success: false, message: "Faltan campos obligatorios." });
+
+    const cantidad    = parseInt(cantidad_numeros, 10);
+    const precio      = parseInt(precio_unitario,  10);
+    const minCantidad = parseInt(cantidad_minima,   10);
+
+    if (cantidad !== 10000 && cantidad !== 100000)
+      return res.status(400).json({ success: false, message: "La cantidad de números debe ser 10,000 o 100,000." });
+    if (precio < 100)
+      return res.status(400).json({ success: false, message: "El precio unitario debe ser al menos $100." });
+    if (minCantidad < 1)
+      return res.status(400).json({ success: false, message: "La cantidad mínima debe ser al menos 1." });
+
+    // ── Validar valor_premios (undefined = no tocar) ──
+    let valorPremiosNum = undefined;
+    if (valor_premios !== undefined) {
+      if (valor_premios === null || valor_premios === "") {
+        valorPremiosNum = null;
+      } else {
+        valorPremiosNum = parseFloat(valor_premios);
+        if (isNaN(valorPremiosNum) || valorPremiosNum < 0)
+          return res.status(400).json({ success: false, message: "valor_premios debe ser un número >= 0." });
+      }
     }
 
-    // ✅ VALIDAR QUE LA CANTIDAD SEA 10000 O 100000
-    const cantidad = parseInt(cantidad_numeros, 10);
-    if (cantidad !== 10000 && cantidad !== 100000) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "La cantidad de números debe ser 10,000 o 100,000." 
-      });
+    // ── Validar fecha_autorizacion ──
+    let fechaAutorizacionVal = undefined;
+    if (fecha_autorizacion !== undefined) {
+      if (!fecha_autorizacion || fecha_autorizacion === "") {
+        fechaAutorizacionVal = null;
+      } else {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha_autorizacion))
+          return res.status(400).json({ success: false, message: "fecha_autorizacion debe tener formato YYYY-MM-DD." });
+        fechaAutorizacionVal = fecha_autorizacion;
+      }
     }
 
-    // ✅ VALIDAR PRECIO UNITARIO Y CANTIDAD MÍNIMA
-    const precio = parseInt(precio_unitario, 10);
-    const minCantidad = parseInt(cantidad_minima, 10);
-    
-    if (precio < 100) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "El precio unitario debe ser al menos $100." 
-      });
-    }
-
-    if (minCantidad < 1) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "La cantidad mínima debe ser al menos 1." 
-      });
-    }
-
-    // ✅ VALIDAR FECHA DE SORTEO (OPCIONAL)
-    let fechaSorteoValidada = undefined; // undefined = no tocar el campo en BD
+    // ── Validar fecha_sorteo ──
+    let fechaSorteoValidada = undefined;
     if (fecha_sorteo !== undefined) {
-      if (fecha_sorteo === null || fecha_sorteo === '') {
-        // Permitir borrar la fecha enviando null o string vacío
+      if (!fecha_sorteo || fecha_sorteo === "") {
         fechaSorteoValidada = null;
       } else {
-        const fecha = new Date(fecha_sorteo);
-        if (isNaN(fecha.getTime())) {
-          return res.status(400).json({ 
-            success: false, 
-            message: "La fecha de sorteo no es válida. Usa formato ISO 8601 (ej: 2026-04-15T20:00:00Z)." 
-          });
-        }
-        if (fecha <= new Date()) {
-          return res.status(400).json({ 
-            success: false, 
-            message: "La fecha de sorteo debe ser una fecha futura." 
-          });
-        }
-        fechaSorteoValidada = fecha.toISOString();
-        console.log("📅 Fecha de sorteo validada:", fechaSorteoValidada);
+        const { ok, valor, mensaje } = validarFechaSorteo(fecha_sorteo);
+        if (!ok) return res.status(400).json({ success: false, message: mensaje });
+        fechaSorteoValidada = valor;
       }
     }
 
-    // ✅ VALIDAR PAQUETES DE PROMOCIÓN (SI SE PROPORCIONAN)
-    let paquetesValidados = null;
+    // ── Validar paquetes ──
+    let paquetesValidados = undefined;
     if (paquetes_promocion !== undefined) {
-      if (paquetes_promocion === null || paquetes_promocion === '') {
+      if (!paquetes_promocion || paquetes_promocion === "") {
         paquetesValidados = null;
       } else {
-        try {
-          const paquetes = typeof paquetes_promocion === 'string' 
-            ? JSON.parse(paquetes_promocion) 
-            : paquetes_promocion;
-
-          ['paquete1', 'paquete2', 'paquete3'].forEach((key, index) => {
-            const paquete = paquetes[key];
-            if (paquete) {
-              if (!paquete.cantidad_compra || !Number.isInteger(paquete.cantidad_compra) || paquete.cantidad_compra < 1) {
-                throw new Error(`Paquete ${index + 1}: cantidad_compra debe ser un número entero mayor a 0`);
-              }
-              if (paquete.numeros_gratis === undefined || !Number.isInteger(paquete.numeros_gratis) || paquete.numeros_gratis < 0) {
-                throw new Error(`Paquete ${index + 1}: numeros_gratis debe ser un número entero mayor o igual a 0`);
-              }
-            }
-          });
-
-          paquetesValidados = paquetes;
-          console.log("✅ Paquetes de promoción validados:", paquetesValidados);
-        } catch (error) {
-          return res.status(400).json({ 
-            success: false, 
-            message: `Error en paquetes_promocion: ${error.message}` 
-          });
-        }
+        const { ok, valor, mensaje } = validarPaquetes(paquetes_promocion);
+        if (!ok) return res.status(400).json({ success: false, message: mensaje });
+        paquetesValidados = valor;
       }
     }
 
-    let publicUrl;
-    if (archivo) {
-      console.log("📤 Nueva imagen proporcionada, subiendo...");
-      const extension = path.extname(archivo.originalname);
-      const filename = `${uuidv4()}${extension}`;
-      
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from("rifas")
-        .upload(filename, archivo.buffer, { 
-          contentType: archivo.mimetype, 
-          upsert: true 
-        });
-      
-      if (uploadError) throw uploadError;
+    // ── Subir nuevas imágenes si se proporcionaron ──
+    let nuevaImagenUrl = undefined;
+    let nuevaBoletaUrl = undefined;
 
-      const { data: publicUrlData } = supabaseAdmin.storage
-        .from("rifas")
-        .getPublicUrl(filename);
-      publicUrl = publicUrlData.publicUrl;
+    if (archivoPortada) {
+      console.log("📤 Nueva imagen de portada, subiendo...");
+      nuevaImagenUrl = await subirImagen(archivoPortada, "rifas");
+    }
+    if (archivoBoleta) {
+      console.log("📤 Nueva imagen de boleta, subiendo...");
+      nuevaBoletaUrl = await subirImagen(archivoBoleta, "rifas");
     }
 
+    // ── Construir objeto de actualización (solo campos presentes en el body) ──
     const updateData = {
       titulo,
       descripcion,
       cantidad_numeros: cantidad,
-      precio_unitario: precio,
-      cantidad_minima: minCantidad,
-      ...(publicUrl && { imagen_url: publicUrl }),
-      ...(paquetes_promocion !== undefined && { paquetes_promocion: paquetesValidados }),
-      ...(fechaSorteoValidada !== undefined && { fecha_sorteo: fechaSorteoValidada }) // ← NUEVO
+      precio_unitario:  precio,
+      cantidad_minima:  minCantidad,
+      // Imágenes (solo si se envió archivo nuevo)
+      ...(nuevaImagenUrl !== undefined && { imagen_url:        nuevaImagenUrl }),
+      ...(nuevaBoletaUrl !== undefined && { imagen_boleta_url: nuevaBoletaUrl }),
+      // Opcionales
+      ...(paquetes_promocion  !== undefined && { paquetes_promocion:   paquetesValidados }),
+      ...(fechaSorteoValidada !== undefined && { fecha_sorteo:         fechaSorteoValidada }),
+      ...(loteria_referencia  !== undefined && { loteria_referencia:   loteria_referencia   || null }),
+      // ── Campos legales ──
+      ...(numero_resolucion     !== undefined && { numero_resolucion:     numero_resolucion     || null }),
+      ...(fechaAutorizacionVal  !== undefined && { fecha_autorizacion:    fechaAutorizacionVal }),
+      ...(termino_caducidad     !== undefined && { termino_caducidad:     termino_caducidad     || null }),
+      ...(responsable_nombre    !== undefined && { responsable_nombre:    responsable_nombre    || null }),
+      ...(responsable_domicilio !== undefined && { responsable_domicilio: responsable_domicilio || null }),
+      ...(responsable_id        !== undefined && { responsable_id:        responsable_id        || null }),
+      ...(descripcion_premios   !== undefined && { descripcion_premios:   descripcion_premios   || null }),
+      ...(valorPremiosNum       !== undefined && { valor_premios:         valorPremiosNum }),
+      ...(es_pagadero_portador  !== undefined && { es_pagadero_portador:  es_pagadero_portador === true || es_pagadero_portador === "true" }),
     };
 
     console.log("💾 Actualizando rifa en la base de datos...");
@@ -458,26 +406,16 @@ export const editarRifa = async (req, res) => {
       .select();
 
     if (error) throw error;
-    
-    if (!data.length) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Rifa no encontrada" 
-      });
-    }
+
+    if (!data.length)
+      return res.status(404).json({ success: false, message: "Rifa no encontrada" });
 
     console.log("✅ Rifa actualizada exitosamente");
-    res.json({ 
-      success: true, 
-      message: "Rifa actualizada con éxito", 
-      rifa: data[0] 
-    });
+    res.json({ success: true, message: "Rifa actualizada con éxito", rifa: data[0] });
+
   } catch (err) {
     console.error("❌ Error en editarRifa:", err);
-    res.status(500).json({ 
-      success: false, 
-      message: err.message || "Error interno del servidor" 
-    });
+    res.status(500).json({ success: false, message: err.message || "Error interno del servidor" });
   }
 };
 
