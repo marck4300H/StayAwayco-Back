@@ -82,20 +82,17 @@ const getImagenPlantilla = () => {
  * 📄 Generar PDF de boletos oficiales Coljuegos
  * Todos los números son incluidos — requerimiento legal
  */
-const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
+const generarPDFBoletos = async (usuario, rifa, numerosUsuario, totalNumerosReales = null) => {
   return new Promise(async (resolve, reject) => {
     try {
       const CM = 28.35;
-
       const BOLETO_W   = 11 * CM;
       const BOLETO_H   = 5  * CM;
       const GAP        = 0.5 * CM;
-
       const PAGE_W     = 595;
       const PAGE_H     = 842;
       const MARGIN_X   = (PAGE_W - BOLETO_W) / 2;
       const MARGIN_Y   = 0.8 * CM;
-
       const POR_PAGINA = Math.floor((PAGE_H - MARGIN_Y * 2) / (BOLETO_H + GAP));
 
       const doc = new PDFDocument({
@@ -111,33 +108,138 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       doc.on('end',  () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // ✅ Imagen desde caché (no re-lee el archivo en cada llamada)
       let imagenPlantilla = getImagenPlantilla();
-
-      // Si no hay archivo local, descargar desde URL y guardar en caché
       if (!imagenPlantilla && rifa.imagen_boleta_url) {
-        console.log('🖼️ Descargando imagen plantilla desde URL...');
         try {
           imagenPlantilla = await descargarImagen(rifa.imagen_boleta_url);
-          _imagenCache = imagenPlantilla; // guardar para siguientes llamadas
-          console.log('✅ Imagen plantilla lista y cacheada');
+          _imagenCache = imagenPlantilla;
         } catch (imgError) {
           console.warn('⚠️ No se pudo cargar imagen plantilla:', imgError.message);
         }
       }
 
-      // ✅ Pre-calcular strings estáticos (fuera del loop)
-      const fechaSorteoStr = rifa.fecha_sorteo
+      // ─────────────────────────────────────────
+      // PÁGINA 1: PORTADA INFORMATIVA
+      // ─────────────────────────────────────────
+      doc.addPage();
+
+      const PAD = 0.7 * CM;
+      const INNER_W = PAGE_W - PAD * 2;
+
+      // Encabezado azul
+      doc.rect(0, 0, PAGE_W, 2.8 * CM).fill('#0A369D');
+      doc.fontSize(18).fillColor('#ffffff').font('Helvetica-Bold')
+         .text('StayAway Rifas', PAD, 0.4 * CM, { width: INNER_W, align: 'center' });
+      doc.fontSize(11).fillColor('#CFDEE7').font('Helvetica')
+         .text(rifa.titulo || 'Boleto Oficial', PAD, 1.1 * CM, { width: INNER_W, align: 'center' });
+      doc.fontSize(9).fillColor('#92B4F4')
+         .text('BOLETO OFICIAL DE PARTICIPACIÓN', PAD, 1.7 * CM, { width: INNER_W, align: 'center' });
+
+      let curY = 3.2 * CM;
+
+      // ── Sección: Datos del comprador ──
+      const seccionTitulo = (titulo, y) => {
+        doc.rect(PAD, y, INNER_W, 0.55 * CM).fill('#4472CA');
+        doc.fontSize(9).fillColor('#ffffff').font('Helvetica-Bold')
+           .text(titulo, PAD + 6, y + 7, { width: INNER_W - 12 });
+        return y + 0.55 * CM + 4;
+      };
+
+      const fila = (label, valor, x, y, w) => {
+        doc.fontSize(7.5).fillColor('#5a6370').font('Helvetica-Bold')
+           .text(label, x, y, { width: w, lineBreak: false });
+        doc.fontSize(9).fillColor('#1a1a1a').font('Helvetica-Bold')
+           .text(String(valor || '—'), x, y + 10, { width: w, lineBreak: false });
+        return y + 22;
+      };
+
+      curY = seccionTitulo('DATOS DEL COMPRADOR', curY);
+      const COL_W = (INNER_W - 10) / 2;
+      const COL2_X = PAD + COL_W + 10;
+
+      fila('NOMBRE COMPLETO', `${usuario.nombres} ${usuario.apellidos}`, PAD, curY, COL_W * 1.6);
+      fila('DOCUMENTO', `${usuario.tipo_documento || 'CC'} ${usuario.numero_documento}`, COL2_X + 20, curY, COL_W * 0.9);
+      curY += 24;
+      fila('CORREO ELECTRÓNICO', usuario.correo_electronico, PAD, curY, COL_W * 1.6);
+      fila('TELÉFONO', usuario.telefono || '—', COL2_X + 20, curY, COL_W * 0.9);
+      curY += 28;
+
+      // ── Sección: Resumen de compra ──
+      curY = seccionTitulo('RESUMEN DE COMPRA', curY);
+
+      const total = totalNumerosReales || numerosUsuario.length;
+      const enPDF  = numerosUsuario.length;
+      const fechaSorteo = rifa.fecha_sorteo
         ? new Date(rifa.fecha_sorteo).toLocaleDateString('es-CO', {
             year: 'numeric', month: 'long', day: 'numeric',
             hour: '2-digit', minute: '2-digit', timeZone: 'America/Bogota'
           })
         : 'Por confirmar';
 
+      fila('TOTAL BOLETOS ADQUIRIDOS', `${total} boleto(s)`, PAD, curY, COL_W);
+      fila('BOLETOS EN ESTE PDF', `${enPDF} boleto(s)`, COL2_X, curY, COL_W);
+      curY += 24;
+      fila('FECHA DEL SORTEO', fechaSorteo, PAD, curY, COL_W * 1.6);
+      fila('LOTERÍA REFERENCIA', rifa.loteria_referencia || '—', COL2_X + 20, curY, COL_W * 0.9);
+      curY += 24;
+      fila('VALOR UNITARIO', `$${(rifa.precio_unitario || 0).toLocaleString('es-CO')} COP`, PAD, curY, COL_W);
+      fila('PREMIO ESTIMADO', rifa.valor_premios ? `$${rifa.valor_premios.toLocaleString('es-CO')} COP` : '—', COL2_X, curY, COL_W);
+      curY += 28;
+
+      // ── Sección: Información legal Coljuegos ──
+      if (rifa.numero_resolucion || rifa.responsable_nombre) {
+        curY = seccionTitulo('INFORMACIÓN LEGAL — COLJUEGOS', curY);
+        const fechaAut = rifa.fecha_autorizacion
+          ? new Date(rifa.fecha_autorizacion).toLocaleDateString('es-CO')
+          : '—';
+        fila('RESOLUCIÓN', `N° ${rifa.numero_resolucion || '—'}`, PAD, curY, COL_W);
+        fila('FECHA AUTORIZACIÓN', fechaAut, COL2_X, curY, COL_W);
+        curY += 24;
+        fila('RESPONSABLE', rifa.responsable_nombre || '—', PAD, curY, COL_W * 1.6);
+        fila('NIT / ID', rifa.responsable_id || '—', COL2_X + 20, curY, COL_W * 0.9);
+        curY += 24;
+        fila('DOMICILIO', rifa.responsable_domicilio || '—', PAD, curY, INNER_W);
+        curY += 24;
+        fila('TÉRMINO DE CADUCIDAD DEL PREMIO', rifa.termino_caducidad || '30 días hábiles', PAD, curY, INNER_W);
+        curY += 28;
+      }
+
+      // ── AVISO IMPORTANTE (caja amarilla) ──
+      const AVISO_H = 3.6 * CM;
+      doc.rect(PAD, curY, INNER_W, AVISO_H).fillAndStroke('#FFF8E1', '#F9A825');
+      doc.fontSize(9).fillColor('#5a3e00').font('Helvetica-Bold')
+         .text('⚠️  INFORMACIÓN IMPORTANTE', PAD + 8, curY + 8, { width: INNER_W - 16 });
+
+      const avisos = [
+        'El premio será entregado ÚNICAMENTE a la persona registrada como compradora en este documento.',
+        'El derecho de participación es personal e intransferible. No se aceptan cesiones de boletos.',
+        'Para reclamar el premio, el ganador debe presentar su documento de identidad original.',
+        'La verificación del número ganador se realiza con base en la lotería de referencia indicada.',
+        `En caso de no reclamar el premio dentro del término de caducidad (${rifa.termino_caducidad || '30 días hábiles'}), el derecho se perderá.`,
+      ];
+
+      let avisoY = curY + 20;
+      doc.fontSize(7.8).fillColor('#5a3e00').font('Helvetica');
+      for (const linea of avisos) {
+        doc.text(`• ${linea}`, PAD + 8, avisoY, { width: INNER_W - 16, lineBreak: true });
+        avisoY += 14;
+      }
+
+      curY += AVISO_H + 10;
+
+      // Pie de portada
+      doc.fontSize(7).fillColor('#8a8a8a').font('Helvetica')
+         .text(
+           `Documento generado el ${new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })} | stayaway.com.co | soporte@stayaway.com.co`,
+           PAD, curY, { width: INNER_W, align: 'center' }
+         );
+
+      // ─────────────────────────────────────────
+      // PÁGINAS SIGUIENTES: BOLETOS
+      // ─────────────────────────────────────────
+      const fechaSorteoStr = fechaSorteo;
       const fechaAutorizacion = rifa.fecha_autorizacion
-        ? new Date(rifa.fecha_autorizacion).toLocaleDateString('es-CO', {
-            year: 'numeric', month: 'long', day: 'numeric'
-          })
+        ? new Date(rifa.fecha_autorizacion).toLocaleDateString('es-CO')
         : 'Por confirmar';
 
       const digitosFormato = (rifa.cantidad_numeros - 1).toString().length;
@@ -166,8 +268,8 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       const F_PIE      = 4.5;
       const FIELD_H_1  = 0.62 * CM;
       const FIELD_H_2  = 0.90 * CM;
+      const PAD_TOP    = 0.12 * CM;
 
-      const PAD_TOP = 0.12 * CM;
       const posY = [
         PAD_TOP,
         PAD_TOP + FIELD_H_1,
@@ -189,7 +291,6 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario) => {
       };
 
       let boletoIndex = 0;
-
       for (const numero of numerosUsuario) {
         if (boletoIndex % POR_PAGINA === 0) doc.addPage();
 
@@ -254,7 +355,6 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
     console.log(`   - Números gratis: ${transaccion.numerosGratis || 0}`);
     console.log(`   - Total entregado: ${numerosAsignados.length}`);
 
-    // Usar rifa pasada como parámetro o buscarla
     let rifaData = rifaCompleta;
     if (!rifaData) {
       const { data: rifa, error: rifaError } = await supabaseAdmin
@@ -280,9 +380,13 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
       };
     }
 
-    // ✅ TODOS los boletos en el PDF — requerimiento legal
-    console.log(`📄 Generando PDF con ${numerosAsignados.length} boletos oficiales...`);
-    const pdfBuffer = await generarPDFBoletos(usuario, rifaData, numerosAsignados);
+    // ✅ Limitar PDF a máximo 50 boletos para evitar timeout/memoria
+    const MAX_PDF = 50;
+    const totalReal      = numerosAsignados.length;
+    const numerosParaPDF = numerosAsignados.slice(0, MAX_PDF);
+
+    console.log(`📄 Generando PDF con portada + ${numerosParaPDF.length} boletos (total real: ${totalReal})...`);
+    const pdfBuffer = await generarPDFBoletos(usuario, rifaData, numerosParaPDF, totalReal);
     console.log('✅ PDF generado exitosamente');
 
     const pdfBase64   = pdfBuffer.toString('base64');
@@ -403,7 +507,7 @@ export const probarConfiguracionEmail = async () => {
  */
 const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
   const tienePaqueteGratis = transaccion.numerosGratis && transaccion.numerosGratis > 0;
-  
+
   return `
 <!DOCTYPE html>
 <html lang="es">
@@ -432,171 +536,70 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
       text-align: center;
       color: white;
     }
-    .header h1 {
-      font-size: 30px;
-      margin-bottom: 10px;
-      font-weight: 800;
-    }
-    .header p {
-      font-size: 16px;
-      opacity: 0.9;
-    }
-    .content {
-      padding: 40px 30px;
-    }
-    .success-icon {
-      text-align: center;
-      font-size: 72px;
-      margin-bottom: 20px;
-    }
+    .header h1 { font-size: 30px; margin-bottom: 10px; font-weight: 800; }
+    .header p  { font-size: 16px; opacity: 0.9; }
+    .content   { padding: 40px 30px; }
+    .success-icon { text-align: center; font-size: 72px; margin-bottom: 20px; }
     .greeting {
-      font-size: 22px;
-      color: #0A369D;
-      margin-bottom: 16px;
-      text-align: center;
-      font-weight: 800;
+      font-size: 22px; color: #0A369D; margin-bottom: 16px;
+      text-align: center; font-weight: 800;
     }
     .message {
-      font-size: 15px;
-      color: #4a4a4a;
-      line-height: 1.7;
-      margin-bottom: 28px;
-      text-align: center;
+      font-size: 15px; color: #4a4a4a; line-height: 1.7;
+      margin-bottom: 28px; text-align: center;
     }
     .promo-banner {
       background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
-      color: white;
-      padding: 20px;
-      border-radius: 16px;
-      margin: 28px 0;
-      text-align: center;
-      box-shadow: 0 10px 25px rgba(10, 54, 157, 0.35);
+      color: white; padding: 20px; border-radius: 16px; margin: 28px 0;
+      text-align: center; box-shadow: 0 10px 25px rgba(10, 54, 157, 0.35);
     }
-    .promo-banner .gift-icon {
-      font-size: 44px;
-      margin-bottom: 10px;
-    }
-    .promo-banner h2 {
-      font-size: 22px;
-      margin-bottom: 8px;
-      font-weight: 800;
-    }
-    .promo-banner p {
-      font-size: 16px;
-      opacity: 0.95;
-    }
+    .promo-banner .gift-icon { font-size: 44px; margin-bottom: 10px; }
+    .promo-banner h2 { font-size: 22px; margin-bottom: 8px; font-weight: 800; }
+    .promo-banner p  { font-size: 16px; opacity: 0.95; }
     .promo-banner .promo-details {
-      background: rgba(255,255,255,0.15);
-      padding: 14px;
-      border-radius: 10px;
-      margin-top: 14px;
-      font-size: 15px;
+      background: rgba(255,255,255,0.15); padding: 14px;
+      border-radius: 10px; margin-top: 14px; font-size: 15px;
     }
     .transaction-info {
-      background: #f5f7fb;
-      border-radius: 14px;
-      padding: 24px;
-      margin: 28px 0;
-      border-left: 5px solid #0A369D;
+      background: #f5f7fb; border-radius: 14px; padding: 24px;
+      margin: 28px 0; border-left: 5px solid #0A369D;
     }
     .info-row {
-      display: flex;
-      justify-content: space-between;
-      padding: 11px 0;
-      border-bottom: 1px solid #CFDEE7;
+      display: flex; justify-content: space-between;
+      padding: 11px 0; border-bottom: 1px solid #CFDEE7;
     }
     .info-row:last-child { border-bottom: none; }
-    .info-label {
-      font-weight: 600;
-      color: #5a6370;
-      font-size: 14px;
+    .info-label { font-weight: 600; color: #5a6370; font-size: 14px; }
+    .info-value { color: #2d2d2d; font-weight: 500; font-size: 14px; }
+    .info-value.highlight { color: #0A369D; font-weight: 800; font-size: 16px; }
+    .info-value.promo     { color: #4472CA; font-weight: 700; font-size: 15px; }
+    .attachment-box {
+      background: #f0f4ff; border: 2px solid #CFDEE7; border-radius: 14px;
+      padding: 22px; margin: 28px 0; text-align: center;
     }
-    .info-value {
-      color: #2d2d2d;
-      font-weight: 500;
-      font-size: 14px;
+    .attachment-box .attach-icon { font-size: 40px; margin-bottom: 10px; }
+    .attachment-box h3 { color: #0A369D; font-size: 17px; font-weight: 800; margin-bottom: 6px; }
+    .attachment-box p  { color: #5a6370; font-size: 14px; line-height: 1.6; }
+    .attachment-box .filename {
+      display: inline-block; background: #0A369D; color: #fff;
+      border-radius: 8px; padding: 6px 16px; margin-top: 12px;
+      font-size: 13px; font-weight: 700; letter-spacing: 0.03em;
     }
-    .info-value.highlight {
-      color: #0A369D;
-      font-weight: 800;
-      font-size: 16px;
+    .aviso-box {
+      background: #FFF8E1; border: 2px solid #F9A825; border-radius: 14px;
+      padding: 20px; margin: 20px 0;
     }
-    .info-value.promo {
-      color: #4472CA;
-      font-weight: 700;
-      font-size: 15px;
-    }
-    .numbers-section { margin: 28px 0; }
-    .section-title {
-      font-size: 18px;
-      color: #0A369D;
-      margin-bottom: 10px;
-      text-align: center;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    .numbers-subtitle {
-      text-align: center;
-      color: #5a6370;
-      font-size: 14px;
-      margin-bottom: 14px;
-    }
-    .numbers-grid {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 14px;
-      margin-top: 6px;
-    }
-    .number-box {
-      background: linear-gradient(135deg, #0A369D 0%, #4472CA 100%);
-      color: white;
-      padding: 16px 10px;
-      border-radius: 10px;
-      text-align: center;
-      font-weight: 700;
-      font-size: 16px;
-      box-shadow: 0 4px 12px rgba(10, 54, 157, 0.25);
-    }
-    .more-numbers-note {
-      text-align: center;
-      color: #5a6370;
-      font-size: 13px;
-      margin-top: 12px;
-    }
-    .attachment-note {
-      background: #f0f4ff;
-      border: 2px solid #CFDEE7;
-      border-radius: 10px;
-      padding: 14px;
-      margin: 18px 0;
-      text-align: center;
-      color: #0A369D;
-    }
-    .attachment-note strong {
-      display: block;
-      font-size: 15px;
-      margin-bottom: 4px;
-    }
+    .aviso-box h4 { color: #5a3e00; font-size: 14px; font-weight: 800; margin-bottom: 10px; }
+    .aviso-box ul { padding-left: 18px; }
+    .aviso-box li { color: #5a3e00; font-size: 13px; line-height: 1.7; margin-bottom: 4px; }
     .footer {
-      background: #0A369D;
-      color: #ffffff;
-      padding: 28px 30px;
-      text-align: center;
-      font-size: 13px;
+      background: #0A369D; color: #ffffff; padding: 28px 30px;
+      text-align: center; font-size: 13px;
     }
     .footer p { margin: 4px 0; opacity: 0.85; }
     .footer .social-links { margin-top: 16px; }
     .footer .social-links a {
-      color: #92B4F4;
-      text-decoration: none;
-      margin: 0 10px;
-      font-weight: 600;
-    }
-    @media only screen and (max-width: 600px) {
-      .header h1 { font-size: 22px; }
-      .numbers-grid { grid-template-columns: repeat(5, 1fr); gap: 10px; }
-      .number-box { padding: 12px 6px; font-size: 13px; }
+      color: #92B4F4; text-decoration: none; margin: 0 10px; font-weight: 600;
     }
   </style>
 </head>
@@ -609,12 +612,13 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
 
     <div class="content">
       <div class="success-icon">✅</div>
-      
+
       <h2 class="greeting">¡Hola, ${usuario.nombres} ${usuario.apellidos}!</h2>
-      
+
       <p class="message">
-        Tu compra ha sido procesada exitosamente. ${tienePaqueteGratis ? '¡Y tienes números de regalo!' : 'Ya estás participando en la rifa.'}
-        A continuación encontrarás todos los detalles de tu transacción.
+        Tu compra ha sido procesada exitosamente.
+        ${tienePaqueteGratis ? '¡Y tienes números de regalo!' : 'Ya estás participando en la rifa.'}
+        Revisa el PDF adjunto para ver tus boletos oficiales.
       </p>
 
       ${tienePaqueteGratis ? `
@@ -659,40 +663,40 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
         </div>
         <div class="info-row">
           <span class="info-label">Fecha:</span>
-          <span class="info-value">${new Date().toLocaleDateString('es-CO', { 
+          <span class="info-value">${new Date().toLocaleDateString('es-CO', {
             year: 'numeric', month: 'long', day: 'numeric',
             hour: '2-digit', minute: '2-digit'
           })}</span>
         </div>
       </div>
 
-      <div class="attachment-note">
-        <strong>📎 Archivo adjunto:</strong>
-        Encuentra el PDF con <strong>todos</strong> tus números en el archivo adjunto de este correo.
+      <div class="attachment-box">
+        <div class="attach-icon">📎</div>
+        <h3>Tus boletos están adjuntos</h3>
+        <p>
+          El PDF adjunto a este correo contiene tu portada oficial con datos de compra
+          y los primeros <strong>${Math.min(50, numerosAsignados.length)}</strong> boletos de los
+          <strong>${numerosAsignados.length}</strong> en total.
+          Puedes ver todos tus boletos ingresando a tu cuenta en la plataforma.
+        </p>
+        <span class="filename">📄 StayAway_Boletos_${transaccion.referencia}.pdf</span>
       </div>
 
-      <div class="numbers-section">
-        <h3 class="section-title">🎯 Tus Números</h3>
-        <p class="numbers-subtitle">
-          ${tienePaqueteGratis
-            ? `Total: <strong>${transaccion.cantidadTotal}</strong> números (${transaccion.cantidad} comprados + ${transaccion.numerosGratis} gratis)`
-            : `Total: <strong>${numerosAsignados.length}</strong> números`
-          }
-        </p>
-        <div class="numbers-grid">
-          ${numerosAsignados.slice(0, 10).map(n => `<div class="number-box">#${n}</div>`).join('')}
-        </div>
-        ${numerosAsignados.length > 10 ? `
-        <p class="more-numbers-note">
-          📎 Y ${numerosAsignados.length - 10} números más — ver todos en el PDF adjunto
-        </p>` : ''}
+      <div class="aviso-box">
+        <h4>⚠️ Información importante</h4>
+        <ul>
+          <li>El premio será entregado <strong>únicamente</strong> a la persona registrada como compradora.</li>
+          <li>Conserva este correo y el PDF adjunto como comprobantes de tu participación.</li>
+          <li>Para reclamar el premio debes presentar tu documento de identidad original.</li>
+          <li>Ante cualquier duda comunícate a <strong>soporte@stayaway.com.co</strong>.</li>
+        </ul>
       </div>
     </div>
 
     <div class="footer">
       <p style="font-weight:800; font-size:15px; opacity:1;">StayAway Rifas</p>
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
-      <p>Contacto: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
+      <p>Contacto: <a href="mailto:soporte@stayaway.com.co" style="color:#92B4F4;">soporte@stayaway.com.co</a></p>
       <div class="social-links">
         <a href="#">Instagram</a>
         <a href="#">WhatsApp</a>
