@@ -212,18 +212,17 @@ export const obtenerNumerosUsuario = async (req, res) => {
     const usuario = req.usuario;
 
     if (!usuario || (!usuario.id && !usuario.numero_documento)) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Usuario no autenticado." 
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado.",
       });
     }
 
     console.log(`📋 Buscando números para usuario:`, usuario);
 
-    // ✅ SOLUCIÓN: Buscar SOLO en la tabla 'numeros' para evitar duplicación
     let allNumerosUsuario = [];
-    
-    // BUSCAR POR USUARIO_ID (prioritario para nuevos usuarios)
+
+    // ── Buscar por usuario_id (prioritario — usuarios nuevos) ──
     if (usuario.id) {
       const { data: byUserId, error: error1 } = await supabaseAdmin
         .from("numeros")
@@ -231,13 +230,13 @@ export const obtenerNumerosUsuario = async (req, res) => {
         .eq("usuario_id", usuario.id)
         .order("numero", { ascending: true });
 
-      if (!error1 && byUserId) {
+      if (!error1 && byUserId?.length > 0) {
         allNumerosUsuario = byUserId;
         console.log(`📊 Encontrados ${allNumerosUsuario.length} números por usuario_id`);
       }
     }
 
-    // SI NO ENCONTRÓ POR ID, BUSCAR POR NUMERO_DOCUMENTO (compatibilidad)
+    // ── Fallback: buscar por numero_documento (compatibilidad usuarios antiguos) ──
     if (allNumerosUsuario.length === 0 && usuario.numero_documento) {
       const { data: byDoc, error: error2 } = await supabaseAdmin
         .from("numeros")
@@ -245,25 +244,42 @@ export const obtenerNumerosUsuario = async (req, res) => {
         .eq("comprado_por", usuario.numero_documento)
         .order("numero", { ascending: true });
 
-      if (!error2 && byDoc) {
+      if (!error2 && byDoc?.length > 0) {
         allNumerosUsuario = byDoc;
         console.log(`📊 Encontrados ${allNumerosUsuario.length} números por numero_documento`);
       }
     }
 
     if (allNumerosUsuario.length === 0) {
-      return res.json({ 
-        success: true, 
-        numeros: [] 
-      });
+      return res.json({ success: true, numeros: [], rifas: [] });
     }
 
-    // ✅ Obtener información de las rifas
-    const rifaIds = [...new Set(allNumerosUsuario.map(item => item.rifa_id))];
-    
+    // ── Obtener datos completos de las rifas involucradas ──
+    const rifaIds = [...new Set(allNumerosUsuario.map((n) => n.rifa_id))];
+
     const { data: rifas, error: rifasError } = await supabaseAdmin
       .from("rifas")
-      .select("id, titulo, cantidad_numeros")
+      .select(`
+        id,
+        titulo,
+        descripcion,
+        cantidad_numeros,
+        precio_unitario,
+        fecha_sorteo,
+        estado,
+        imagen_url,
+        imagen_boleta_url,
+        loteria_referencia,
+        numero_resolucion,
+        fecha_autorizacion,
+        termino_caducidad,
+        responsable_nombre,
+        responsable_domicilio,
+        responsable_id,
+        descripcion_premios,
+        valor_premios,
+        es_pagadero_portador
+      `)
       .in("id", rifaIds);
 
     if (rifasError) {
@@ -271,41 +287,104 @@ export const obtenerNumerosUsuario = async (req, res) => {
       throw rifasError;
     }
 
-    // ✅ Crear mapa de rifas para búsqueda rápida
+    // ── Calcular dígitos de formato por rifa ──
+    const calcularDigitos = (cantidadNumeros) =>
+      (cantidadNumeros - 1).toString().length;
+
+    // ── Mapa rifa_id → datos de rifa ──
     const rifaMap = {};
-    rifas.forEach(rifa => {
+    rifas.forEach((rifa) => {
       rifaMap[rifa.id] = {
-        titulo: rifa.titulo,
-        total_numeros: rifa.cantidad_numeros
+        ...rifa,
+        digitos_formato: calcularDigitos(rifa.cantidad_numeros),
       };
     });
 
-    // ✅ Construir respuesta
-    const respuesta = allNumerosUsuario.map((item) => {
-      const rifaInfo = rifaMap[item.rifa_id];
+    // ── Agrupar números por rifa ──
+    const numerosAgrupados = {};
+    allNumerosUsuario.forEach((item) => {
+      if (!numerosAgrupados[item.rifa_id]) {
+        numerosAgrupados[item.rifa_id] = [];
+      }
+      numerosAgrupados[item.rifa_id].push(
+        String(item.numero).padStart(
+          rifaMap[item.rifa_id]?.digitos_formato ?? 5,
+          "0"
+        )
+      );
+    });
+
+    // ── Obtener datos del usuario autenticado para el PDF ──
+    const { data: datosUsuario } = await supabaseAdmin
+      .from("usuarios")
+      .select("nombres, apellidos, numero_documento, tipo_documento, correo_electronico, telefono, ciudad")
+      .eq("id", usuario.id)
+      .single();
+
+    // ── Construir respuesta agrupada por rifa ──
+    const rifasConNumeros = rifaIds.map((rifaId) => {
+      const rifa    = rifaMap[rifaId];
+      const numeros = numerosAgrupados[rifaId] ?? [];
+
       return {
-        numero: item.numero,
-        rifa_id: item.rifa_id,
-        titulo_rifa: rifaInfo?.titulo || "Rifa no encontrada",
-        total_numeros_rifa: rifaInfo?.total_numeros || 0
+        rifa_id:   rifaId,
+        numeros,
+        cantidad:  numeros.length,
+        // ── Datos básicos ──
+        titulo:              rifa.titulo,
+        descripcion:         rifa.descripcion,
+        estado:              rifa.estado,
+        imagen_url:          rifa.imagen_url,
+        imagen_boleta_url:   rifa.imagen_boleta_url,
+        cantidad_numeros:    rifa.cantidad_numeros,
+        precio_unitario:     rifa.precio_unitario,
+        digitos_formato:     rifa.digitos_formato,
+        fecha_sorteo:        rifa.fecha_sorteo    ?? null,
+        loteria_referencia:  rifa.loteria_referencia ?? null,
+        // ── Datos legales para pie de boleto ──
+        numero_resolucion:     rifa.numero_resolucion     ?? null,
+        fecha_autorizacion:    rifa.fecha_autorizacion    ?? null,
+        termino_caducidad:     rifa.termino_caducidad     ?? null,
+        responsable_nombre:    rifa.responsable_nombre    ?? null,
+        responsable_domicilio: rifa.responsable_domicilio ?? null,
+        responsable_id:        rifa.responsable_id        ?? null,
+        descripcion_premios:   rifa.descripcion_premios   ?? null,
+        valor_premios:         rifa.valor_premios         ?? null,
+        es_pagadero_portador:  rifa.es_pagadero_portador  ?? false,
       };
     });
 
-    console.log("✅ RESPUESTA FINAL DE NÚMEROS:", {
-      total_numeros: respuesta.length,
-      rifas_unicas: [...new Set(respuesta.map(r => r.titulo_rifa))]
+    // ── Lista plana (compatibilidad con respuesta anterior) ──
+    const numerosPlanos = allNumerosUsuario.map((item) => {
+      const rifa = rifaMap[item.rifa_id];
+      return {
+        numero:             String(item.numero).padStart(rifa?.digitos_formato ?? 5, "0"),
+        rifa_id:            item.rifa_id,
+        titulo_rifa:        rifa?.titulo            ?? "Rifa no encontrada",
+        total_numeros_rifa: rifa?.cantidad_numeros  ?? 0,
+      };
     });
 
-    return res.json({ 
-      success: true, 
-      numeros: respuesta 
+    console.log("✅ Números entregados:", {
+      total: allNumerosUsuario.length,
+      rifas_unicas: rifaIds.length,
+    });
+
+    return res.json({
+      success: true,
+      // ── Lista plana (retrocompatibilidad) ──
+      numeros: numerosPlanos,
+      // ── Agrupado por rifa con datos completos para PDF ──
+      rifas: rifasConNumeros,
+      // ── Datos del usuario para encabezado del PDF ──
+      usuario: datosUsuario ?? null,
     });
 
   } catch (err) {
     console.error("❌ Error obteniendo números del usuario:", err);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Error interno del servidor al obtener números." 
+    return res.status(500).json({
+      success: false,
+      message: "Error interno del servidor al obtener números.",
     });
   }
 };
