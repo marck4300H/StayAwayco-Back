@@ -369,124 +369,45 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
       const colorTextoOscuro = '#2d2d2d';
       const colorTextoGris   = '#5a6370';
 
-      // COLORES CROMADOS (simulación de metal plateado con toque azul)
-      const cromo = {
-        base:       '#C8D8E8',  // gris azulado base
-        claro:      '#E8F0F8',  // reflejo superior claro
-        medio:      '#A0B8D0',  // tono medio
-        oscuro:     '#6080A0',  // sombra inferior
-        brillo:     '#F4F8FC',  // highlight central
-        borde:      '#7090B0',  // borde metálico
-        texto:      '#1A2A4A',  // texto oscuro sobre cromo
-        textoGlow:  '#FFFFFF',  // brillo en el texto
-      };
-
-      // ─────────────────────────────────────────
-      // Helper: dibujar caja cromada
-      // ─────────────────────────────────────────
-      const dibujarCajaCromada = (x, y, w, h) => {
-        // Capa base (gris azulado)
-        doc.rect(x, y, w, h).fill(cromo.base);
-
-        // Gradiente simulado: franjas horizontales de arriba a abajo
-        const pasos = 10;
-        const altoPaso = h / pasos;
-        const capas = [
-          cromo.claro,    // 0 — highlight top
-          cromo.brillo,   // 1 — brillo intenso
-          cromo.claro,    // 2
-          cromo.base,     // 3
-          cromo.medio,    // 4 — tono medio
-          cromo.medio,    // 5
-          cromo.oscuro,   // 6 — sombra
-          cromo.medio,    // 7 — rebote
-          cromo.base,     // 8
-          cromo.claro,    // 9 — reflejo inferior
-        ];
-        capas.forEach((color, i) => {
-          doc.save();
-          doc.rect(x, y + i * altoPaso, w, altoPaso + 0.5)
-             .fill(color);
-          doc.restore();
-        });
-
-        // Highlight diagonal (reflejo de luz superior izquierda)
-        doc.save();
-        doc.rect(x, y, w * 0.45, h * 0.45).fill(cromo.brillo);
-        doc.opacity(0.25);
-        doc.restore();
-
-        // Borde metálico
-        doc.rect(x, y, w, h)
-           .stroke(cromo.borde)
-           .lineWidth(1.5);
-
-        // Línea de brillo superior (highlight fino)
-        doc.save();
-        doc.strokeColor('#FFFFFF')
-           .lineWidth(0.8)
-           .opacity(0.9)
-           .moveTo(x + 2, y + 1.5)
-           .lineTo(x + w - 2, y + 1.5)
-           .stroke();
-        doc.restore();
-
-        // Línea de sombra inferior
-        doc.save();
-        doc.strokeColor(cromo.oscuro)
-           .lineWidth(0.8)
-           .opacity(0.7)
-           .moveTo(x + 2, y + h - 1.5)
-           .lineTo(x + w - 2, y + h - 1.5)
-           .stroke();
-        doc.restore();
-      };
-
-      // ─────────────────────────────────────────
-      // Helper: texto cromado (sombra + texto)
-      // ─────────────────────────────────────────
-      const textoCromado = (texto, x, y, w, fontSize) => {
-        // Sombra del texto (desplazada 1px)
-        doc.fontSize(fontSize)
-           .fillColor(cromo.oscuro)
-           .font('Helvetica-Bold')
-           .text(texto, x + 0.8, y + 1, { width: w, align: 'center', lineBreak: false });
-
-        // Texto principal oscuro
-        doc.fontSize(fontSize)
-           .fillColor(cromo.texto)
-           .font('Helvetica-Bold')
-           .text(texto, x, y, { width: w, align: 'center', lineBreak: false });
-
-        // Brillo encima (semitransparente blanco, desplazado -0.5px)
-        doc.save();
-        doc.opacity(0.35);
-        doc.fontSize(fontSize)
-           .fillColor('#FFFFFF')
-           .font('Helvetica-Bold')
-           .text(texto, x, y - 0.5, { width: w, align: 'center', lineBreak: false });
-        doc.restore();
-      };
-
       // ═══════════════════════════════════════
       // ENCABEZADO
       // ═══════════════════════════════════════
 
-      doc.rect(0, 0, 595, 150).fill(colorAzulOscuro);
-      doc.rect(0, 120, 595, 30).fill(colorAzulMedio);
+      // Fondo principal del header
+      doc.rect(0, 0, 595, 150)
+         .fill(colorAzulOscuro);
 
-      doc.fontSize(32).fillColor('#ffffff').font('Helvetica-Bold')
+      // Franja inferior del header (acento más claro)
+      doc.rect(0, 120, 595, 30)
+         .fill(colorAzulMedio);
+
+      // Título principal
+      doc.fontSize(32)
+         .fillColor('#ffffff')
+         .font('Helvetica-Bold')
          .text('StayAway', 50, 38, { align: 'center' });
 
-      doc.fontSize(17).fillColor('#ffffff').font('Helvetica').opacity(0.92)
+      // Subtítulo con título de la rifa
+      doc.fontSize(17)
+         .fillColor('#ffffff')
+         .font('Helvetica')
+         .opacity(0.92)
          .text(rifa.titulo, 50, 82, { align: 'center', width: 495 });
 
-      doc.fontSize(10).fillColor('#ffffff').font('Helvetica').opacity(0.85)
+      // Fecha de generación en la franja inferior
+      doc.fontSize(10)
+         .fillColor('#ffffff')
+         .font('Helvetica')
+         .opacity(0.85)
          .text(`Generado el ${new Date().toLocaleDateString('es-CO', {
-           year: 'numeric', month: 'long', day: 'numeric',
-           hour: '2-digit', minute: '2-digit'
+           year: 'numeric',
+           month: 'long',
+           day: 'numeric',
+           hour: '2-digit',
+           minute: '2-digit'
          })}`, 50, 128, { align: 'center' });
 
+      // Resetear opacidad
       doc.opacity(1);
 
       // ═══════════════════════════════════════
@@ -495,18 +416,26 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
 
       let currentY = 180;
 
-      doc.fontSize(14).fillColor(colorAzulOscuro).font('Helvetica-Bold')
+      // Título de sección
+      doc.fontSize(14)
+         .fillColor(colorAzulOscuro)
+         .font('Helvetica-Bold')
          .text('Información del Participante', 50, currentY);
 
-      doc.rect(50, currentY + 22, 495, 3).fill(colorAzulMedio);
+      // Línea decorativa bajo el título
+      doc.rect(50, currentY + 22, 495, 3)
+         .fill(colorAzulMedio);
 
       currentY += 38;
 
+      // Caja de información del usuario
       doc.rect(50, currentY, 495, 120)
          .fillAndStroke(colorFondoGris, colorBorde)
          .lineWidth(1.5);
 
-      doc.rect(50, currentY, 5, 120).fill(colorAzulOscuro);
+      // Borde izquierdo destacado (acento azul)
+      doc.rect(50, currentY, 5, 120)
+         .fill(colorAzulOscuro);
 
       currentY += 20;
 
@@ -519,9 +448,15 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
 
       datosUsuario.forEach((dato, index) => {
         const yPos = currentY + (index * 21);
-        doc.fontSize(10).fillColor(colorTextoGris).font('Helvetica-Bold')
+
+        doc.fontSize(10)
+           .fillColor(colorTextoGris)
+           .font('Helvetica-Bold')
            .text(dato.label, 70, yPos);
-        doc.fontSize(10).fillColor(colorTextoOscuro).font('Helvetica')
+
+        doc.fontSize(10)
+           .fillColor(colorTextoOscuro)
+           .font('Helvetica')
            .text(dato.valor, 220, yPos);
       });
 
@@ -533,31 +468,41 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
 
       currentY += 12;
 
-      doc.fontSize(14).fillColor(colorAzulOscuro).font('Helvetica-Bold')
+      // Título de sección
+      doc.fontSize(14)
+         .fillColor(colorAzulOscuro)
+         .font('Helvetica-Bold')
          .text('Tus Calcas de la Suerte', 50, currentY);
 
-      doc.rect(50, currentY + 22, 495, 3).fill(colorAzulMedio);
+      // Línea decorativa bajo el título
+      doc.rect(50, currentY + 22, 495, 3)
+         .fill(colorAzulMedio);
 
       currentY += 38;
 
-      // Badge contador — también con estilo cromado
-      dibujarCajaCromada(50, currentY, 495, 32);
-      doc.fontSize(11).fillColor(cromo.texto).font('Helvetica-Bold')
-         .text(`Total de calcas adquiridas: ${numerosUsuario.length}`, 50, currentY + 10, {
-           align: 'center', width: 495
+      // Badge con contador de números
+      doc.rect(50, currentY, 495, 30)
+         .fill(colorFondoSuave);
+
+      doc.fontSize(11)
+         .fillColor(colorAzulOscuro)
+         .font('Helvetica-Bold')
+         .text(`Total de calcas adquiridas: ${numerosUsuario.length}`, 50, currentY + 9, {
+           align: 'center',
+           width: 495
          });
 
-      currentY += 50;
+      currentY += 46;
 
       // ═══════════════════════════════════════
-      // GRID DE NÚMEROS (8 por fila) — CROMADOS
+      // GRID DE NÚMEROS (8 por fila)
       // ═══════════════════════════════════════
 
-      const numerosPerRow      = 8;
-      const boxWidth           = 56;
-      const boxHeight          = 45;
-      const horizontalSpacing  = 6;
-      const verticalSpacing    = 10;
+      const numerosPerRow   = 8;
+      const boxWidth        = 56;
+      const boxHeight       = 45;
+      const horizontalSpacing = 6;
+      const verticalSpacing   = 10;
       const startX = 50;
       let x = startX;
       let y = currentY;
@@ -571,24 +516,39 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
             doc.addPage();
             y = 50;
 
-            doc.rect(0, 0, 595, 45).fill(colorAzulOscuro);
-            doc.fontSize(13).fillColor('#ffffff').font('Helvetica-Bold')
+            // Header compacto en páginas adicionales
+            doc.rect(0, 0, 595, 45)
+               .fill(colorAzulOscuro);
+
+            doc.fontSize(13)
+               .fillColor('#ffffff')
+               .font('Helvetica-Bold')
                .text('StayAway — Tus Calcas (continuación)', 50, 14, {
-                 align: 'center', width: 495
+                 align: 'center',
+                 width: 495
                });
 
             y = 65;
           }
         }
 
-        // ── Caja cromada ──
-        dibujarCajaCromada(x, y, boxWidth, boxHeight);
+        // Caja del número: fondo suave + borde azul
+        doc.rect(x, y, boxWidth, boxHeight)
+           .fillAndStroke(colorFondoSuave, colorAzulMedio)
+           .lineWidth(1.5);
 
-        // ── Franja superior azul (como ribete de la calca) ──
-        doc.rect(x, y, boxWidth, 6).fill(colorAzulOscuro);
+        // Franja superior de color en cada caja
+        doc.rect(x, y, boxWidth, 6)
+           .fill(colorAzulOscuro);
 
-        // ── Número con efecto cromado ──
-        textoCromado(`#${numero}`, x, y + 16, boxWidth, 15);
+        // Número centrado
+        doc.fontSize(15)
+           .fillColor(colorAzulOscuro)
+           .font('Helvetica-Bold')
+           .text(`#${numero}`, x, y + 16, {
+             width: boxWidth,
+             align: 'center'
+           });
 
         x += boxWidth + horizontalSpacing;
       });
@@ -599,22 +559,37 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
 
       doc.y = 750;
 
-      doc.strokeColor(colorAzulMedio).lineWidth(2)
-         .moveTo(50, 750).lineTo(545, 750).stroke();
+      // Línea separadora azul
+      doc.strokeColor(colorAzulMedio)
+         .lineWidth(2)
+         .moveTo(50, 750)
+         .lineTo(545, 750)
+         .stroke();
 
-      doc.rect(0, 755, 595, 90).fill(colorAzulOscuro);
+      // Franja de fondo del footer
+      doc.rect(0, 755, 595, 90)
+         .fill(colorAzulOscuro);
 
-      doc.fontSize(11).fillColor('#ffffff').font('Helvetica-Bold')
+      doc.fontSize(11)
+         .fillColor('#ffffff')
+         .font('Helvetica-Bold')
          .text('StayAway Rifas', 50, 765, { align: 'center', width: 495 });
 
-      doc.fontSize(9).fillColor('#ffffff').font('Helvetica').opacity(0.85)
+      doc.fontSize(9)
+         .fillColor('#ffffff')
+         .font('Helvetica')
+         .opacity(0.85)
          .text('Todos los derechos reservados © 2026', 50, 780, {
-           align: 'center', width: 495
+           align: 'center',
+           width: 495
          });
 
-      doc.fontSize(9).fillColor('#ffffff').opacity(0.75)
+      doc.fontSize(9)
+         .fillColor('#ffffff')
+         .opacity(0.75)
          .text('Guarda este documento como comprobante de tu participación', 50, 795, {
-           align: 'center', width: 495
+           align: 'center',
+           width: 495
          });
 
       doc.opacity(1);
