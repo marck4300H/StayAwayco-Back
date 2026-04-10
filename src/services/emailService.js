@@ -369,45 +369,124 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
       const colorTextoOscuro = '#2d2d2d';
       const colorTextoGris   = '#5a6370';
 
+      // COLORES CROMADOS (simulación de metal plateado con toque azul)
+      const cromo = {
+        base:       '#C8D8E8',  // gris azulado base
+        claro:      '#E8F0F8',  // reflejo superior claro
+        medio:      '#A0B8D0',  // tono medio
+        oscuro:     '#6080A0',  // sombra inferior
+        brillo:     '#F4F8FC',  // highlight central
+        borde:      '#7090B0',  // borde metálico
+        texto:      '#1A2A4A',  // texto oscuro sobre cromo
+        textoGlow:  '#FFFFFF',  // brillo en el texto
+      };
+
+      // ─────────────────────────────────────────
+      // Helper: dibujar caja cromada
+      // ─────────────────────────────────────────
+      const dibujarCajaCromada = (x, y, w, h) => {
+        // Capa base (gris azulado)
+        doc.rect(x, y, w, h).fill(cromo.base);
+
+        // Gradiente simulado: franjas horizontales de arriba a abajo
+        const pasos = 10;
+        const altoPaso = h / pasos;
+        const capas = [
+          cromo.claro,    // 0 — highlight top
+          cromo.brillo,   // 1 — brillo intenso
+          cromo.claro,    // 2
+          cromo.base,     // 3
+          cromo.medio,    // 4 — tono medio
+          cromo.medio,    // 5
+          cromo.oscuro,   // 6 — sombra
+          cromo.medio,    // 7 — rebote
+          cromo.base,     // 8
+          cromo.claro,    // 9 — reflejo inferior
+        ];
+        capas.forEach((color, i) => {
+          doc.save();
+          doc.rect(x, y + i * altoPaso, w, altoPaso + 0.5)
+             .fill(color);
+          doc.restore();
+        });
+
+        // Highlight diagonal (reflejo de luz superior izquierda)
+        doc.save();
+        doc.rect(x, y, w * 0.45, h * 0.45).fill(cromo.brillo);
+        doc.opacity(0.25);
+        doc.restore();
+
+        // Borde metálico
+        doc.rect(x, y, w, h)
+           .stroke(cromo.borde)
+           .lineWidth(1.5);
+
+        // Línea de brillo superior (highlight fino)
+        doc.save();
+        doc.strokeColor('#FFFFFF')
+           .lineWidth(0.8)
+           .opacity(0.9)
+           .moveTo(x + 2, y + 1.5)
+           .lineTo(x + w - 2, y + 1.5)
+           .stroke();
+        doc.restore();
+
+        // Línea de sombra inferior
+        doc.save();
+        doc.strokeColor(cromo.oscuro)
+           .lineWidth(0.8)
+           .opacity(0.7)
+           .moveTo(x + 2, y + h - 1.5)
+           .lineTo(x + w - 2, y + h - 1.5)
+           .stroke();
+        doc.restore();
+      };
+
+      // ─────────────────────────────────────────
+      // Helper: texto cromado (sombra + texto)
+      // ─────────────────────────────────────────
+      const textoCromado = (texto, x, y, w, fontSize) => {
+        // Sombra del texto (desplazada 1px)
+        doc.fontSize(fontSize)
+           .fillColor(cromo.oscuro)
+           .font('Helvetica-Bold')
+           .text(texto, x + 0.8, y + 1, { width: w, align: 'center', lineBreak: false });
+
+        // Texto principal oscuro
+        doc.fontSize(fontSize)
+           .fillColor(cromo.texto)
+           .font('Helvetica-Bold')
+           .text(texto, x, y, { width: w, align: 'center', lineBreak: false });
+
+        // Brillo encima (semitransparente blanco, desplazado -0.5px)
+        doc.save();
+        doc.opacity(0.35);
+        doc.fontSize(fontSize)
+           .fillColor('#FFFFFF')
+           .font('Helvetica-Bold')
+           .text(texto, x, y - 0.5, { width: w, align: 'center', lineBreak: false });
+        doc.restore();
+      };
+
       // ═══════════════════════════════════════
       // ENCABEZADO
       // ═══════════════════════════════════════
 
-      // Fondo principal del header
-      doc.rect(0, 0, 595, 150)
-         .fill(colorAzulOscuro);
+      doc.rect(0, 0, 595, 150).fill(colorAzulOscuro);
+      doc.rect(0, 120, 595, 30).fill(colorAzulMedio);
 
-      // Franja inferior del header (acento más claro)
-      doc.rect(0, 120, 595, 30)
-         .fill(colorAzulMedio);
+      doc.fontSize(32).fillColor('#ffffff').font('Helvetica-Bold')
+         .text('StayAway', 50, 38, { align: 'center' });
 
-      // Título principal
-      doc.fontSize(32)
-         .fillColor('#ffffff')
-         .font('Helvetica-Bold')
-         .text('StayAway Rifas', 50, 38, { align: 'center' });
-
-      // Subtítulo con título de la rifa
-      doc.fontSize(17)
-         .fillColor('#ffffff')
-         .font('Helvetica')
-         .opacity(0.92)
+      doc.fontSize(17).fillColor('#ffffff').font('Helvetica').opacity(0.92)
          .text(rifa.titulo, 50, 82, { align: 'center', width: 495 });
 
-      // Fecha de generación en la franja inferior
-      doc.fontSize(10)
-         .fillColor('#ffffff')
-         .font('Helvetica')
-         .opacity(0.85)
+      doc.fontSize(10).fillColor('#ffffff').font('Helvetica').opacity(0.85)
          .text(`Generado el ${new Date().toLocaleDateString('es-CO', {
-           year: 'numeric',
-           month: 'long',
-           day: 'numeric',
-           hour: '2-digit',
-           minute: '2-digit'
+           year: 'numeric', month: 'long', day: 'numeric',
+           hour: '2-digit', minute: '2-digit'
          })}`, 50, 128, { align: 'center' });
 
-      // Resetear opacidad
       doc.opacity(1);
 
       // ═══════════════════════════════════════
@@ -416,26 +495,18 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
 
       let currentY = 180;
 
-      // Título de sección
-      doc.fontSize(14)
-         .fillColor(colorAzulOscuro)
-         .font('Helvetica-Bold')
+      doc.fontSize(14).fillColor(colorAzulOscuro).font('Helvetica-Bold')
          .text('Información del Participante', 50, currentY);
 
-      // Línea decorativa bajo el título
-      doc.rect(50, currentY + 22, 495, 3)
-         .fill(colorAzulMedio);
+      doc.rect(50, currentY + 22, 495, 3).fill(colorAzulMedio);
 
       currentY += 38;
 
-      // Caja de información del usuario
       doc.rect(50, currentY, 495, 120)
          .fillAndStroke(colorFondoGris, colorBorde)
          .lineWidth(1.5);
 
-      // Borde izquierdo destacado (acento azul)
-      doc.rect(50, currentY, 5, 120)
-         .fill(colorAzulOscuro);
+      doc.rect(50, currentY, 5, 120).fill(colorAzulOscuro);
 
       currentY += 20;
 
@@ -448,15 +519,9 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
 
       datosUsuario.forEach((dato, index) => {
         const yPos = currentY + (index * 21);
-
-        doc.fontSize(10)
-           .fillColor(colorTextoGris)
-           .font('Helvetica-Bold')
+        doc.fontSize(10).fillColor(colorTextoGris).font('Helvetica-Bold')
            .text(dato.label, 70, yPos);
-
-        doc.fontSize(10)
-           .fillColor(colorTextoOscuro)
-           .font('Helvetica')
+        doc.fontSize(10).fillColor(colorTextoOscuro).font('Helvetica')
            .text(dato.valor, 220, yPos);
       });
 
@@ -468,41 +533,31 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
 
       currentY += 12;
 
-      // Título de sección
-      doc.fontSize(14)
-         .fillColor(colorAzulOscuro)
-         .font('Helvetica-Bold')
-         .text('Tus Números de la Suerte', 50, currentY);
+      doc.fontSize(14).fillColor(colorAzulOscuro).font('Helvetica-Bold')
+         .text('Tus Calcas de la Suerte', 50, currentY);
 
-      // Línea decorativa bajo el título
-      doc.rect(50, currentY + 22, 495, 3)
-         .fill(colorAzulMedio);
+      doc.rect(50, currentY + 22, 495, 3).fill(colorAzulMedio);
 
       currentY += 38;
 
-      // Badge con contador de números
-      doc.rect(50, currentY, 495, 30)
-         .fill(colorFondoSuave);
-
-      doc.fontSize(11)
-         .fillColor(colorAzulOscuro)
-         .font('Helvetica-Bold')
-         .text(`Total de números adquiridos: ${numerosUsuario.length}`, 50, currentY + 9, {
-           align: 'center',
-           width: 495
+      // Badge contador — también con estilo cromado
+      dibujarCajaCromada(50, currentY, 495, 32);
+      doc.fontSize(11).fillColor(cromo.texto).font('Helvetica-Bold')
+         .text(`Total de calcas adquiridas: ${numerosUsuario.length}`, 50, currentY + 10, {
+           align: 'center', width: 495
          });
 
-      currentY += 46;
+      currentY += 50;
 
       // ═══════════════════════════════════════
-      // GRID DE NÚMEROS (8 por fila)
+      // GRID DE NÚMEROS (8 por fila) — CROMADOS
       // ═══════════════════════════════════════
 
-      const numerosPerRow   = 8;
-      const boxWidth        = 56;
-      const boxHeight       = 45;
-      const horizontalSpacing = 6;
-      const verticalSpacing   = 10;
+      const numerosPerRow      = 8;
+      const boxWidth           = 56;
+      const boxHeight          = 45;
+      const horizontalSpacing  = 6;
+      const verticalSpacing    = 10;
       const startX = 50;
       let x = startX;
       let y = currentY;
@@ -516,39 +571,24 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
             doc.addPage();
             y = 50;
 
-            // Header compacto en páginas adicionales
-            doc.rect(0, 0, 595, 45)
-               .fill(colorAzulOscuro);
-
-            doc.fontSize(13)
-               .fillColor('#ffffff')
-               .font('Helvetica-Bold')
-               .text('StayAway Rifas — Tus Números (continuación)', 50, 14, {
-                 align: 'center',
-                 width: 495
+            doc.rect(0, 0, 595, 45).fill(colorAzulOscuro);
+            doc.fontSize(13).fillColor('#ffffff').font('Helvetica-Bold')
+               .text('StayAway — Tus Calcas (continuación)', 50, 14, {
+                 align: 'center', width: 495
                });
 
             y = 65;
           }
         }
 
-        // Caja del número: fondo suave + borde azul
-        doc.rect(x, y, boxWidth, boxHeight)
-           .fillAndStroke(colorFondoSuave, colorAzulMedio)
-           .lineWidth(1.5);
+        // ── Caja cromada ──
+        dibujarCajaCromada(x, y, boxWidth, boxHeight);
 
-        // Franja superior de color en cada caja
-        doc.rect(x, y, boxWidth, 6)
-           .fill(colorAzulOscuro);
+        // ── Franja superior azul (como ribete de la calca) ──
+        doc.rect(x, y, boxWidth, 6).fill(colorAzulOscuro);
 
-        // Número centrado
-        doc.fontSize(15)
-           .fillColor(colorAzulOscuro)
-           .font('Helvetica-Bold')
-           .text(`#${numero}`, x, y + 16, {
-             width: boxWidth,
-             align: 'center'
-           });
+        // ── Número con efecto cromado ──
+        textoCromado(`#${numero}`, x, y + 16, boxWidth, 15);
 
         x += boxWidth + horizontalSpacing;
       });
@@ -559,37 +599,22 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
 
       doc.y = 750;
 
-      // Línea separadora azul
-      doc.strokeColor(colorAzulMedio)
-         .lineWidth(2)
-         .moveTo(50, 750)
-         .lineTo(545, 750)
-         .stroke();
+      doc.strokeColor(colorAzulMedio).lineWidth(2)
+         .moveTo(50, 750).lineTo(545, 750).stroke();
 
-      // Franja de fondo del footer
-      doc.rect(0, 755, 595, 90)
-         .fill(colorAzulOscuro);
+      doc.rect(0, 755, 595, 90).fill(colorAzulOscuro);
 
-      doc.fontSize(11)
-         .fillColor('#ffffff')
-         .font('Helvetica-Bold')
+      doc.fontSize(11).fillColor('#ffffff').font('Helvetica-Bold')
          .text('StayAway Rifas', 50, 765, { align: 'center', width: 495 });
 
-      doc.fontSize(9)
-         .fillColor('#ffffff')
-         .font('Helvetica')
-         .opacity(0.85)
+      doc.fontSize(9).fillColor('#ffffff').font('Helvetica').opacity(0.85)
          .text('Todos los derechos reservados © 2026', 50, 780, {
-           align: 'center',
-           width: 495
+           align: 'center', width: 495
          });
 
-      doc.fontSize(9)
-         .fillColor('#ffffff')
-         .opacity(0.75)
+      doc.fontSize(9).fillColor('#ffffff').opacity(0.75)
          .text('Guarda este documento como comprobante de tu participación', 50, 795, {
-           align: 'center',
-           width: 495
+           align: 'center', width: 495
          });
 
       doc.opacity(1);
@@ -649,7 +674,7 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
 
     console.log('📤 Enviando correo via Resend...');
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <noreply@stayaway.com.co>',
+      from: 'StayAway <noreply@stayaway.com.co>',
       to: [usuario.correo_electronico],
       subject: `✅ Compra Exitosa - ${transaccion.rifaTitulo}${transaccion.numerosGratis > 0 ? ' 🎁 ¡Con números gratis!' : ''}`,
       html: htmlContent,
@@ -683,7 +708,7 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
 export const enviarCorreoBienvenida = async (usuario, passwordPlana) => {
   try {
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <noreply@stayaway.com.co>',
+      from: 'StayAway <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: '👋 ¡Bienvenido a StayAway Rifas!',
       html: generarTemplateBienvenida(usuario, passwordPlana),
@@ -710,7 +735,7 @@ export const enviarCorreoRecuperacion = async (usuario, tokenRecuperacion) => {
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${tokenRecuperacion}`;
     
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <noreply@stayaway.com.co>',
+      from: 'StayAway <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: '🔐 Restablece tu contraseña - StayAway Rifas',
       html: generarTemplateRecuperacion(usuario, resetUrl),
@@ -738,9 +763,9 @@ export const probarConfiguracionEmail = async () => {
     
     // Probar enviando un correo de prueba
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <noreply@stayaway.com.co>',
+      from: 'StayAway <noreply@stayaway.com.co>',
       to: 'marcoscastro0958@gmail.com', // Tu email
-      subject: '🧪 Prueba de configuración - StayAway Rifas',
+      subject: '🧪 Prueba de configuración - StayAway',
       html: '<h1>✅ Configuración de email funcionando correctamente</h1><p>Si recibes este correo, la configuración de Resend está funcionando.</p>',
     });
 
@@ -769,7 +794,7 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Compra Exitosa - StayAway Rifas</title>
+  <title>Compra Exitosa - StayAway </title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -861,7 +886,7 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
 <body>
   <div class="email-container">
     <div class="header">
-      <h1>🎉 StayAway Rifas</h1>
+      <h1>🎉 StayAway </h1>
       <p>¡Tu compra fue exitosa!</p>
     </div>
 
@@ -872,15 +897,15 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
 
       <p class="message">
         Tu compra ha sido procesada exitosamente.
-        ${tienePaqueteGratis ? '¡Y tienes números de regalo!' : 'Ya estás participando en la rifa.'}
-        Revisa el PDF adjunto para ver tus boletos oficiales.
+        ${tienePaqueteGratis ? '¡Y tienes calcas de regalo!' : 'Ya estás participando en la actividad.'}
+        Revisa el PDF adjunto para ver tus calcas oficiales.
       </p>
 
       ${tienePaqueteGratis ? `
       <div class="promo-banner">
         <div class="gift-icon">🎁</div>
-        <h2>¡Felicidades! Obtuviste números GRATIS</h2>
-        <p>Por tu compra de ${transaccion.cantidad} números</p>
+        <h2>¡Felicidades! Obtuviste calcas GRATIS</h2>
+        <p>Por tu compra de ${transaccion.cantidad} calcas</p>
         <div class="promo-details">
           🎉 Recibiste <strong>+${transaccion.numerosGratis} ${transaccion.numerosGratis === 1 ? 'número' : 'números'} de regalo</strong> 🎉
           <br><br>
@@ -891,7 +916,7 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
 
       <div class="transaction-info">
         <div class="info-row">
-          <span class="info-label">Rifa:</span>
+          <span class="info-label">Actividad:</span>
           <span class="info-value highlight">${transaccion.rifaTitulo}</span>
         </div>
         <div class="info-row">
@@ -899,16 +924,16 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
           <span class="info-value">${transaccion.referencia}</span>
         </div>
         <div class="info-row">
-          <span class="info-label">Números comprados:</span>
+          <span class="info-label">Calcas compradas:</span>
           <span class="info-value">${transaccion.cantidad}</span>
         </div>
         ${tienePaqueteGratis ? `
         <div class="info-row">
-          <span class="info-label">🎁 Números GRATIS:</span>
+          <span class="info-label">Calcas GRATIS:</span>
           <span class="info-value promo">+${transaccion.numerosGratis}</span>
         </div>
         <div class="info-row">
-          <span class="info-label">📊 Total entregado:</span>
+          <span class="info-label"> Total entregado:</span>
           <span class="info-value highlight">${transaccion.cantidadTotal}</span>
         </div>
         ` : ''}
@@ -930,11 +955,11 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
         <h3>Tus boletos están adjuntos</h3>
         <p>
           El PDF adjunto a este correo contiene tu portada oficial con datos de compra
-          y los primeros <strong>${Math.min(50, numerosAsignados.length)}</strong> boletos de los
+          y las primeras <strong>${Math.min(50, numerosAsignados.length)}</strong> calcas del
           <strong>${numerosAsignados.length}</strong> en total.
-          Puedes ver todos tus boletos ingresando a tu cuenta en la plataforma.
+          Puedes ver todas tus calcas ingresando a tu cuenta en la plataforma.
         </p>
-        <span class="filename">📄 StayAway_Boletos_${transaccion.referencia}.pdf</span>
+        <span class="filename">📄 StayAway_Calcas_${transaccion.referencia}.pdf</span>
       </div>
 
       <div class="aviso-box">
@@ -943,19 +968,19 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
           <li>El premio será entregado <strong>únicamente</strong> a la persona registrada como compradora.</li>
           <li>Conserva este correo y el PDF adjunto como comprobantes de tu participación.</li>
           <li>Para reclamar el premio debes presentar tu documento de identidad original.</li>
-          <li>Ante cualquier duda comunícate a <strong>soporte@stayaway.com.co</strong>.</li>
+          <li>Ante cualquier duda comunícate a <strong>stayaway.col@gmail.com</strong>.</li>
         </ul>
       </div>
     </div>
 
     <div class="footer">
-      <p style="font-weight:800; font-size:15px; opacity:1;">StayAway Rifas</p>
+      <p style="font-weight:800; font-size:15px; opacity:1;">StayAway </p>
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
-      <p>Contacto: <a href="mailto:soporte@stayaway.com.co" style="color:#92B4F4;">soporte@stayaway.com.co</a></p>
+      <p>Contacto: <a href="mailto:stayaway.col@gmail.com" style="color:#92B4F4;">soporte@stayaway.com.co</a></p>
       <div class="social-links">
-        <a href="#">Instagram</a>
-        <a href="#">WhatsApp</a>
-        <a href="#">stayaway.com.co</a>
+        <a href="https://www.instagram.com/stayaway.co/" target="_blank">Instagram</a>
+        <a href="https://wa.me/573136787040" target="_blank">WhatsApp</a>
+        <a href="https://www.stayaway.com.co" target="_blank">stayaway.com.co</a>
       </div>
     </div>
   </div>
@@ -971,7 +996,7 @@ const generarTemplateBienvenida = (usuario, passwordPlana) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bienvenido a StayAway Rifas</title>
+  <title>Bienvenido a StayAway </title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -1116,7 +1141,7 @@ const generarTemplateBienvenida = (usuario, passwordPlana) => {
 <body>
   <div class="email-container">
     <div class="header">
-      <h1>👋 StayAway Rifas</h1>
+      <h1>👋 StayAway </h1>
       <p>¡Bienvenido a la comunidad!</p>
     </div>
 
@@ -1127,7 +1152,7 @@ const generarTemplateBienvenida = (usuario, passwordPlana) => {
 
       <p class="message">
         Tu cuenta ha sido creada exitosamente. Ya puedes ingresar a la plataforma
-        y participar en nuestras rifas con las siguientes credenciales:
+        y participar en nuestras actividades con las siguientes credenciales:
       </p>
 
       <div class="credentials-box">
@@ -1148,17 +1173,17 @@ const generarTemplateBienvenida = (usuario, passwordPlana) => {
       </div>
 
       <div class="cta-wrapper">
-        <a href="${process.env.FRONTEND_URL}" class="cta-button">Ingresar a StayAway Rifas →</a>
+        <a href="${process.env.FRONTEND_URL}" class="cta-button">Ingresar a StayAway →</a>
       </div>
     </div>
 
     <div class="footer">
-      <p>StayAway Rifas — Todos los derechos reservados © 2026</p>
+      <p>StayAway  — Todos los derechos reservados © 2026</p>
       <p>Si no solicitaste esta cuenta, ignora este correo.</p>
       <div class="social-links">
-        <a href="#">Instagram</a>
-        <a href="#">WhatsApp</a>
-        <a href="#">stayaway.com.co</a>
+        <a href="https://www.instagram.com/stayaway.co">Instagram</a>
+        <a href="https://wa.me/573136787040">WhatsApp</a>
+        <a href="https://stayaway.com.co">stayaway.com.co</a>
       </div>
     </div>
   </div>
@@ -1174,7 +1199,7 @@ const generarTemplateRecuperacion = (usuario, resetUrl) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Restablecer contraseña - StayAway Rifas</title>
+  <title>Restablecer contraseña - StayAway</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -1301,7 +1326,7 @@ const generarTemplateRecuperacion = (usuario, resetUrl) => {
 <body>
   <div class="email-container">
     <div class="header">
-      <h1>🔐 StayAway Rifas</h1>
+      <h1>🔐 StayAway</h1>
       <p>Restablece tu contraseña</p>
     </div>
 
@@ -1338,9 +1363,9 @@ const generarTemplateRecuperacion = (usuario, resetUrl) => {
       <p>StayAway Rifas — Todos los derechos reservados © 2026</p>
       <p>Este correo fue enviado automáticamente, por favor no respondas.</p>
       <div class="social-links">
-        <a href="#">Instagram</a>
-        <a href="#">WhatsApp</a>
-        <a href="#">stayaway.com.co</a>
+        <a href="https://www.instagram.com/stayaway.co">Instagram</a>
+        <a href="https://wa.me/573136787040">WhatsApp</a>
+        <a href="https://stayaway.com.co">stayaway.com.co</a>
       </div>
     </div>
   </div>
@@ -1354,7 +1379,7 @@ const generarTemplateRecuperacion = (usuario, resetUrl) => {
 export const enviarCorreoGanador = async (ganador, rifa, numeroGanador, loteriaReferencia) => {
   try {
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <noreply@stayaway.com.co>',
+      from: 'StayAway <noreply@stayaway.com.co>',
       to: ganador.correo_electronico,
       subject: `🏆 ¡FELICIDADES! Eres el ganador de ${rifa.titulo}`,
       html: generarTemplateGanador(ganador, rifa, numeroGanador, loteriaReferencia),
@@ -1617,13 +1642,13 @@ const generarTemplateGanador = (ganador, rifa, numeroGanador, loteriaReferencia)
   <div class="container">
     <div class="header">
       <h1>🏆 ¡Felicidades!</h1>
-      <p>Eres el ganador de nuestra rifa</p>
+      <p>Eres el ganador de nuestra actividad</p>
     </div>
 
     <div class="content">
       <h2 class="greeting">Estimado/a ${ganador.nombres} ${ganador.apellidos},</h2>
       <p class="intro-text">
-        Nos complace enormemente informarte que has resultado ganador/a de nuestra rifa.
+        Nos complace enormemente informarte que has resultado ganador/a de nuestra actividad.
         Este es un momento especial y queremos asegurarnos de que tengas toda la información necesaria.
       </p>
 
@@ -1634,9 +1659,9 @@ const generarTemplateGanador = (ganador, rifa, numeroGanador, loteriaReferencia)
       </div>
 
       <div class="info-box">
-        <h3>📋 Información de la Rifa</h3>
+        <h3>📋 Información de la Actividad</h3>
         <div class="info-row">
-          <span class="info-label">Rifa:</span>
+          <span class="info-label">Actividad:</span>
           <span class="info-value">${rifa.titulo}</span>
         </div>
         <div class="info-row">
@@ -1667,19 +1692,19 @@ const generarTemplateGanador = (ganador, rifa, numeroGanador, loteriaReferencia)
       <div class="divider"></div>
 
       <p class="closing-note">
-        Te agradecemos por tu participación y confianza en StayAway Rifas.<br>
+        Te agradecemos por tu participación y confianza en StayAway.<br>
         Esperamos que disfrutes tu premio. ¡Muchas felicidades! 🎉
       </p>
     </div>
 
     <div class="footer">
-      <p class="brand">StayAway Rifas</p>
+      <p class="brand">StayAway</p>
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
       <p>Contacto: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
       <div class="social-links">
-        <a href="#">Instagram</a>
-        <a href="#">WhatsApp</a>
-        <a href="#">stayaway.com.co</a>
+        <a href="https://www.instagram.com/stayaway.co">Instagram</a>
+        <a href="https://wa.me/573136787040">WhatsApp</a>
+        <a href="https://stayaway.com.co">stayaway.com.co</a>
       </div>
     </div>
   </div>
@@ -1890,19 +1915,19 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
 <body>
   <div class="container">
     <div class="header">
-      <h1>🎯 Rifa Sorteada</h1>
+      <h1> Actividad Finalizada</h1>
       <p>Resultados oficiales del sorteo</p>
     </div>
 
     <div class="content">
       <h2 class="greeting">Estimado/a ${usuario.nombres} ${usuario.apellidos},</h2>
       <p class="intro-text">
-        Te informamos que el sorteo de la rifa en la que participaste ha sido realizado exitosamente.
+        Te informamos que la actividad en la que participaste ha sido realizada exitosamente.
         A continuación te presentamos los resultados oficiales:
       </p>
 
       <div class="winner-box">
-        <h3>🏆 Número Ganador</h3>
+        <h3>🏆 Calca Ganadora</h3>
         <div class="winner-number">#${numeroGanador}</div>
       </div>
 
@@ -1939,22 +1964,22 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
       <div class="divider"></div>
 
       <div class="thanks-box">
-        <p>🙌 Gracias por tu participación. Te invitamos a estar atento a nuestras próximas rifas.</p>
+        <p>🙌 Gracias por tu participación. Te invitamos a estar atento a nuestras próximas actividades.</p>
       </div>
 
       <p class="closing-note">
-        Puedes seguir nuestras redes sociales para enterarte de futuros sorteos y promociones especiales.
+        Puedes seguir nuestras redes sociales para enterarte de futuras actividades y promociones especiales.
       </p>
     </div>
 
     <div class="footer">
-      <p class="brand">StayAway Rifas</p>
+      <p class="brand">StayAway</p>
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
       <p>Contacto: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
       <div class="social-links">
-        <a href="#">Instagram</a>
-        <a href="#">WhatsApp</a>
-        <a href="#">stayaway.com.co</a>
+        <a href="https://www.instagram.com/stayaway.co">Instagram</a>
+        <a href="https://wa.me/573136787040">WhatsApp</a>
+        <a href="https://stayaway.com.co">stayaway.com.co</a>
       </div>
     </div>
   </div>
@@ -1997,7 +2022,7 @@ export const enviarCorreoSorteoDesierto = async (
     const pdfBuffer = await generarPDFNumeros(usuario, rifaCompleta, numerosUsuario);
 
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <noreply@stayaway.com.co>',
+      from: 'StayAway <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: `🔄 Sorteo Reprogramado - ${rifa.titulo}`,
       html: generarTemplateSorteoDesierto(
@@ -2271,21 +2296,21 @@ const generarTemplateSorteoDesierto = (
 <body>
   <div class="container">
     <div class="header">
-      <h1>⚠️ Sorteo Sin Ganador</h1>
+      <h1> Sorteo Sin Ganador</h1>
       <p>Información importante sobre el sorteo</p>
     </div>
 
     <div class="content">
       <h2 class="greeting">Estimado/a ${usuario.nombres} ${usuario.apellidos},</h2>
       <p class="intro-text">
-        Te informamos que se ha realizado el sorteo de la rifa en la que participaste.
+        Te informamos que se ha realizado el sorteo de la actividad en la que participaste.
         Sin embargo, el número sorteado no fue adquirido por ningún participante.
       </p>
 
       <div class="alert-box">
-        <h3>⚡ Número Sorteado (No Vendido)</h3>
+        <h3> Calca Sorteada (No Vendida)</h3>
         <div class="numero-sorteado">#${numeroSorteado}</div>
-        <p>Este número no tiene comprador asignado, por lo que se procederá a un nuevo sorteo.</p>
+        <p>Esta calca no tiene comprador asignado, por lo que se procederá a un nuevo sorteo.</p>
       </div>
 
       <div class="new-date-box">
@@ -2325,7 +2350,7 @@ const generarTemplateSorteoDesierto = (
       <div class="divider"></div>
 
       <p class="lucky-note">
-        🍀 Tus números siguen activos y participarán en el nuevo sorteo programado. ¡Mucha suerte!
+        🍀 Tus calcas siguen activas y participarán en el nuevo sorteo programado. ¡Mucha suerte!
       </p>
       <p class="closing-note">
         Estaremos atentos para informarte sobre los resultados del nuevo sorteo.
@@ -2333,13 +2358,13 @@ const generarTemplateSorteoDesierto = (
     </div>
 
     <div class="footer">
-      <p class="brand">StayAway Rifas</p>
+      <p class="brand">StayAway</p>
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
-      <p>Contacto: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
+      <p>Contacto: <a href="mailto:stayaway.col@gmail.com">stayaway.col@gmail.com</a></p>
       <div class="social-links">
-        <a href="#">Instagram</a>
-        <a href="#">WhatsApp</a>
-        <a href="#">stayaway.com.co</a>
+        <a href="https://www.instagram.com/stayaway.co">Instagram</a>
+        <a href="https://wa.me/573136787040">WhatsApp</a>
+        <a href="https://stayaway.com.co">stayaway.com.co</a>
       </div>
     </div>
   </div>
