@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "../../supabaseAdminClient.js";
 import { enviarCorreoGanador, enviarCorreoParticipantes, enviarCorreoSorteoDesierto } from "../services/emailService.js";
+import { parseToColombiaTime } from "../utils/timezoneUtils.js";
 
 /**
  * ✅ Calcular cantidad de dígitos necesarios según el total de números de la rifa
@@ -437,7 +438,12 @@ export const notificarSorteoDesierto = async (req, res) => {
     console.log(`✅ Rifa encontrada: ${rifa.titulo}`);
 
     // ✅ 2. VALIDAR LA NUEVA FECHA
-    const nuevaFecha = new Date(nueva_fecha_sorteo);
+    const nuevaFecha = parseToColombiaTime(nueva_fecha_sorteo);
+    
+    if (!nuevaFecha || isNaN(nuevaFecha.getTime())) {
+      return res.status(400).json({ success: false, message: "Formato de fecha de sorteo inválido" });
+    }
+
     const ahora = new Date();
 
     if (nuevaFecha <= ahora) {

@@ -2,6 +2,7 @@ import { supabaseAdmin } from "../../supabaseAdminClient.js";
 import multer from "multer";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
+import { validarFechaSorteo } from "../utils/timezoneUtils.js";
 
 const storage = multer.memoryStorage();
 export const upload = multer({ storage });
@@ -553,4 +554,46 @@ export const getRifaById = async (req, res) => {
       message: "Error interno del servidor" 
     });
   }
+};
+
+/**
+ * Validar estructura de los paquetes de promoción
+ */
+export const validarPaquetes = (paquetes_promocion) => {
+  if (!paquetes_promocion || paquetes_promocion === 'null' || paquetes_promocion === 'undefined') {
+    return { ok: true, valor: null };
+  }
+  try {
+    const paquetes = typeof paquetes_promocion === 'string' ? JSON.parse(paquetes_promocion) : paquetes_promocion;
+    return { ok: true, valor: paquetes };
+  } catch(e) {
+    return { ok: false, mensaje: "Formato de paquetes de promoción inválido" };
+  }
+};
+
+/**
+ * Subir imagen al bucket público de Supabase
+ */
+export const subirImagen = async (fileObj, bucketName) => {
+  const extension = path.extname(fileObj.originalname);
+  const hash = uuidv4();
+  const filePath = `${hash}${extension}`;
+  
+  const { data, error } = await supabaseAdmin.storage
+    .from(bucketName)
+    .upload(filePath, fileObj.buffer, {
+      contentType: fileObj.mimetype,
+      upsert: false
+    });
+    
+  if (error) {
+    console.error("❌ Error subiendo imagen", error);
+    throw new Error("No se pudo subir la imagen al sistema");
+  }
+  
+  const { data: publicUrlData } = supabaseAdmin.storage
+    .from(bucketName)
+    .getPublicUrl(filePath);
+    
+  return publicUrlData.publicUrl;
 };
