@@ -129,7 +129,7 @@ const generarPDFBoletos = async (usuario, rifa, numerosUsuario, totalNumerosReal
       // Encabezado azul
       doc.rect(0, 0, PAGE_W, 2.8 * CM).fill('#0A369D');
       doc.fontSize(18).fillColor('#ffffff').font('Helvetica-Bold')
-         .text('StayAway Rifas', PAD, 0.4 * CM, { width: INNER_W, align: 'center' });
+         .text('Stayaway', PAD, 0.4 * CM, { width: INNER_W, align: 'center' });
       doc.fontSize(11).fillColor('#CFDEE7').font('Helvetica')
          .text(rifa.titulo || 'Boleto Oficial', PAD, 1.1 * CM, { width: INNER_W, align: 'center' });
       doc.fontSize(9).fillColor('#92B4F4')
@@ -573,7 +573,7 @@ const generarPDFNumeros = (usuario, rifa, numerosUsuario) => {
       doc.fontSize(11)
          .fillColor('#ffffff')
          .font('Helvetica-Bold')
-         .text('StayAway Rifas', 50, 765, { align: 'center', width: 495 });
+         .text('Stayaway', 50, 765, { align: 'center', width: 495 });
 
       doc.fontSize(9)
          .fillColor('#ffffff')
@@ -649,9 +649,9 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
 
     console.log('📤 Enviando correo via Resend...');
     const { data, error } = await resend.emails.send({
-      from: 'StayAway <noreply@stayaway.com.co>',
+      from: 'Stayaway <noreply@stayaway.com.co>',
       to: [usuario.correo_electronico],
-      subject: `✅ Compra Exitosa - ${transaccion.rifaTitulo}${transaccion.numerosGratis > 0 ? ' 🎁 ¡Con números gratis!' : ''}`,
+      subject: `✅ Compra Exitosa - ${transaccion.rifaTitulo}${transaccion.numerosGratis > 0 ? ' 🎁 ¡Con calcas gratis!' : ''}`,
       html: htmlContent,
       attachments: [
         {
@@ -683,9 +683,9 @@ export const enviarCorreoCompraExitosa = async (usuario, transaccion, numerosAsi
 export const enviarCorreoBienvenida = async (usuario, passwordPlana) => {
   try {
     const { data, error } = await resend.emails.send({
-      from: 'StayAway <noreply@stayaway.com.co>',
+      from: 'Stayaway <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
-      subject: '👋 ¡Bienvenido a StayAway Rifas!',
+      subject: '👋 ¡Bienvenido a Stayaway!',
       html: generarTemplateBienvenida(usuario, passwordPlana),
     });
 
@@ -710,9 +710,9 @@ export const enviarCorreoRecuperacion = async (usuario, tokenRecuperacion) => {
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${tokenRecuperacion}`;
     
     const { data, error } = await resend.emails.send({
-      from: 'StayAway <noreply@stayaway.com.co>',
+      from: 'Stayaway <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
-      subject: '🔐 Restablece tu contraseña - StayAway Rifas',
+      subject: '🔐 Restablece tu contraseña - Stayaway',
       html: generarTemplateRecuperacion(usuario, resetUrl),
     });
 
@@ -769,7 +769,7 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Compra Exitosa - StayAway </title>
+  <title>Compra Exitosa - Stayaway</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -882,9 +882,9 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
         <h2>¡Felicidades! Obtuviste calcas GRATIS</h2>
         <p>Por tu compra de ${transaccion.cantidad} calcas</p>
         <div class="promo-details">
-          🎉 Recibiste <strong>+${transaccion.numerosGratis} ${transaccion.numerosGratis === 1 ? 'número' : 'números'} de regalo</strong> 🎉
+          🎉 Recibiste <strong>+${transaccion.numerosGratis} ${transaccion.numerosGratis === 1 ? 'calca' : 'calcas'} de regalo</strong> 🎉
           <br><br>
-          <strong>Total entregado: ${transaccion.cantidadTotal} números</strong>
+          <strong>Total entregado: ${transaccion.cantidadTotal} calcas</strong>
         </div>
       </div>
       ` : ''}
@@ -953,7 +953,7 @@ const generarTemplateCompra = (usuario, transaccion, numerosAsignados) => {
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
       <p>Contacto: <a href="mailto:stayaway.col@gmail.com" style="color:#92B4F4;">soporte@stayaway.com.co</a></p>
       <div class="social-links">
-        <a href="https://www.instagram.com/stayaway.co/" target="_blank">Instagram</a>
+        <a href="https://www.instagram.com/stayawayco/" target="_blank">Instagram</a>
         <a href="https://wa.me/573136787040" target="_blank">WhatsApp</a>
         <a href="https://www.stayaway.com.co" target="_blank">stayaway.com.co</a>
       </div>
@@ -1156,7 +1156,7 @@ const generarTemplateBienvenida = (usuario, passwordPlana) => {
       <p>StayAway  — Todos los derechos reservados © 2026</p>
       <p>Si no solicitaste esta cuenta, ignora este correo.</p>
       <div class="social-links">
-        <a href="https://www.instagram.com/stayaway.co">Instagram</a>
+        <a href="https://www.instagram.com/stayawayco">Instagram</a>
         <a href="https://wa.me/573136787040">WhatsApp</a>
         <a href="https://stayaway.com.co">stayaway.com.co</a>
       </div>
@@ -1335,10 +1335,10 @@ const generarTemplateRecuperacion = (usuario, resetUrl) => {
     </div>
 
     <div class="footer">
-      <p>StayAway Rifas — Todos los derechos reservados © 2026</p>
+      <p>Stayaway — Todos los derechos reservados © 2026</p>
       <p>Este correo fue enviado automáticamente, por favor no respondas.</p>
       <div class="social-links">
-        <a href="https://www.instagram.com/stayaway.co">Instagram</a>
+        <a href="https://www.instagram.com/stayawayco">Instagram</a>
         <a href="https://wa.me/573136787040">WhatsApp</a>
         <a href="https://stayaway.com.co">stayaway.com.co</a>
       </div>
@@ -1354,7 +1354,7 @@ const generarTemplateRecuperacion = (usuario, resetUrl) => {
 export const enviarCorreoGanador = async (ganador, rifa, numeroGanador, loteriaReferencia) => {
   try {
     const { data, error } = await resend.emails.send({
-      from: 'StayAway <noreply@stayaway.com.co>',
+      from: 'Stayaway <noreply@stayaway.com.co>',
       to: ganador.correo_electronico,
       subject: `🏆 ¡FELICIDADES! Eres el ganador de ${rifa.titulo}`,
       html: generarTemplateGanador(ganador, rifa, numeroGanador, loteriaReferencia),
@@ -1402,7 +1402,7 @@ export const enviarCorreoParticipantes = async (usuario, rifa, numeroGanador, nu
     const pdfBuffer = await generarPDFNumeros(usuario, rifaCompleta, numerosUsuario);
 
     const { data, error } = await resend.emails.send({
-      from: 'StayAway Rifas <noreply@stayaway.com.co>',
+      from: 'Stayaway <noreply@stayaway.com.co>',
       to: usuario.correo_electronico,
       subject: `🎲 Rifa Sorteada - ${rifa.titulo}`,
       html: generarTemplateParticipantes(usuario, rifa, numeroGanador, numerosUsuario, loteriaReferencia),
@@ -1629,7 +1629,7 @@ const generarTemplateGanador = (ganador, rifa, numeroGanador, loteriaReferencia)
 
       <div class="winner-banner">
         <div class="winner-trophy">🎯</div>
-        <p class="winner-label">Número Ganador</p>
+        <p class="winner-label">Calca Ganadora</p>
         <div class="winner-number">#${numeroGanador}</div>
       </div>
 
@@ -1677,7 +1677,7 @@ const generarTemplateGanador = (ganador, rifa, numeroGanador, loteriaReferencia)
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
       <p>Contacto: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
       <div class="social-links">
-        <a href="https://www.instagram.com/stayaway.co">Instagram</a>
+        <a href="https://www.instagram.com/stayawayco">Instagram</a>
         <a href="https://wa.me/573136787040">WhatsApp</a>
         <a href="https://stayaway.com.co">stayaway.com.co</a>
       </div>
@@ -1927,12 +1927,12 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
       </div>
 
       <div class="numbers-section">
-        <h3>🎯 Tus Números Participantes</h3>
+        <h3>🎯 Tus Calcas Participantes</h3>
         <div class="numbers-grid">
           ${numerosUsuario.slice(0, 10).map(numero => `<div class="number">#${numero}</div>`).join('')}
         </div>
         ${numerosUsuario.length > 10
-          ? `<p class="more-numbers">📎 Y ${numerosUsuario.length - 10} números más — ver todos en el PDF adjunto</p>`
+          ? `<p class="more-numbers">📎 Y ${numerosUsuario.length - 10} calcas más — ver todas en el PDF adjunto</p>`
           : ''}
       </div>
 
@@ -1952,7 +1952,7 @@ const generarTemplateParticipantes = (usuario, rifa, numeroGanador, numerosUsuar
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
       <p>Contacto: <a href="mailto:soporte@stayaway.com.co">soporte@stayaway.com.co</a></p>
       <div class="social-links">
-        <a href="https://www.instagram.com/stayaway.co">Instagram</a>
+        <a href="https://www.instagram.com/stayawayco">Instagram</a>
         <a href="https://wa.me/573136787040">WhatsApp</a>
         <a href="https://stayaway.com.co">stayaway.com.co</a>
       </div>
@@ -2279,7 +2279,7 @@ const generarTemplateSorteoDesierto = (
       <h2 class="greeting">Estimado/a ${usuario.nombres} ${usuario.apellidos},</h2>
       <p class="intro-text">
         Te informamos que se ha realizado el sorteo de la actividad en la que participaste.
-        Sin embargo, el número sorteado no fue adquirido por ningún participante.
+        Sin embargo, la calca sorteada no fue adquirida por ningún participante.
       </p>
 
       <div class="alert-box">
@@ -2313,12 +2313,12 @@ const generarTemplateSorteoDesierto = (
       </div>
 
       <div class="numbers-section">
-        <h3>🎯 Tus Números Siguen Participando</h3>
+        <h3>🎯 Tus Calcas Siguen Participando</h3>
         <div class="numbers-grid">
           ${numerosUsuario.slice(0, 10).map(numero => `<div class="number">#${numero}</div>`).join('')}
         </div>
         ${numerosUsuario.length > 10
-          ? `<p class="more-numbers">📎 Y ${numerosUsuario.length - 10} números más — ver todos en el PDF adjunto</p>`
+          ? `<p class="more-numbers">📎 Y ${numerosUsuario.length - 10} calcas más — ver todas en el PDF adjunto</p>`
           : ''}
       </div>
 
@@ -2337,7 +2337,7 @@ const generarTemplateSorteoDesierto = (
       <p>Todos los derechos reservados © ${new Date().getFullYear()}</p>
       <p>Contacto: <a href="mailto:stayaway.col@gmail.com">stayaway.col@gmail.com</a></p>
       <div class="social-links">
-        <a href="https://www.instagram.com/stayaway.co">Instagram</a>
+        <a href="https://www.instagram.com/stayawayco">Instagram</a>
         <a href="https://wa.me/573136787040">WhatsApp</a>
         <a href="https://stayaway.com.co">stayaway.com.co</a>
       </div>
