@@ -184,7 +184,7 @@ export const asignarNumerosDirecto = async (req, res) => {
     // ✅ 2. Verificar que el usuario existe (por número de documento)
     const { data: usuario, error: usuarioError } = await supabaseAdmin
       .from("usuarios")
-      .select("id, nombres, apellidos, correo_electronico, numero_documento, tipo_documento")
+      .select("id, nombres, apellidos, correo_electronico, numero_documento, tipo_documento, telefono")
       .eq("numero_documento", numero_documento)
       .single();
 
