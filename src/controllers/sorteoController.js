@@ -178,37 +178,34 @@ export const sortearRifa = async (req, res) => {
 
     console.log("✅ Rifa marcada como sorteada en la base de datos");
 
-    // ✅ 6. OBTENER LISTA DE TODOS LOS PARTICIPANTES
-    const { data: participantes, error: participantesError } = await supabaseAdmin
+    // ✅ 6. OBTENER LISTA DE TODOS LOS PARTICIPANTES ÚNICOS
+    // Paso 1: Obtener IDs únicos de compradores (sin límite de filas del JOIN)
+    const { data: compradoresRaw, error: compradoresError } = await supabaseAdmin
       .from("numeros")
-      .select(`
-        usuario_id,
-        usuarios (
-          id,
-          nombres,
-          apellidos,
-          correo_electronico,
-          numero_documento,
-          telefono
-        )
-      `)
+      .select("usuario_id")
       .eq("rifa_id", rifa_id)
       .not("usuario_id", "is", null);
 
-    if (participantesError) {
-      console.error("⚠️ Error obteniendo participantes:", participantesError);
+    if (compradoresError) {
+      console.error("⚠️ Error obteniendo compradores:", compradoresError);
     }
 
-    // Eliminar duplicados (un usuario puede tener múltiples números)
-    const participantesUnicos = participantes?.reduce((acc, curr) => {
-      const existe = acc.find(p => p.usuarios?.id === curr.usuarios?.id);
-      if (!existe && curr.usuarios) {
-        acc.push(curr);
-      }
-      return acc;
-    }, []) || [];
+    // Deduplica los IDs en JS
+    const idsUnicos = [...new Set((compradoresRaw || []).map(r => r.usuario_id))];
+    console.log(`📊 Total participantes únicos: ${idsUnicos.length}`);
 
-    console.log(`📊 Total participantes únicos: ${participantesUnicos.length}`);
+    // Paso 2: Cargar datos completos de esos usuarios
+    const { data: usuariosData, error: usuariosError } = await supabaseAdmin
+      .from("usuarios")
+      .select("id, nombres, apellidos, correo_electronico, numero_documento, telefono")
+      .in("id", idsUnicos);
+
+    if (usuariosError) {
+      console.error("⚠️ Error obteniendo datos de usuarios:", usuariosError);
+    }
+
+    // Reconvertir al mismo formato que espera el resto del código
+    const participantesUnicos = (usuariosData || []).map(u => ({ usuarios: u }));
 
     // ✅ 7. ENVIAR CORREOS (EN SEGUNDO PLANO - NO BLOQUEAR RESPUESTA)
     enviarCorreosPost(ganador, participantesUnicos, rifa, numeroFormateado, loteria_referencia);
@@ -271,16 +268,26 @@ const enviarCorreosPost = async (ganador, participantes, rifa, numeroFormateado,
     // Esperar antes de enviar correos a participantes
     await delay(DELAY_ENTRE_CORREOS);
 
-    // 2️⃣ Obtener números de cada participante
-    const { data: numerosParticipantes } = await supabaseAdmin
-      .from("numeros")
-      .select("numero, usuario_id")
-      .eq("rifa_id", rifa.id)
-      .not("usuario_id", "is", null);
+    // 2️⃣ Obtener números de cada participante (con paginación, sin límite de 1000)
+    let todosLosNumeros = [];
+    let desde = 0;
+    const PAGINA = 1000;
+    while (true) {
+      const { data: pagina, error: paginaError } = await supabaseAdmin
+        .from("numeros")
+        .select("numero, usuario_id")
+        .eq("rifa_id", rifa.id)
+        .not("usuario_id", "is", null)
+        .range(desde, desde + PAGINA - 1);
+      if (paginaError || !pagina || pagina.length === 0) break;
+      todosLosNumeros = todosLosNumeros.concat(pagina);
+      if (pagina.length < PAGINA) break;
+      desde += PAGINA;
+    }
 
     // Agrupar números por usuario
     const numerosMap = {};
-    numerosParticipantes?.forEach(n => {
+    todosLosNumeros.forEach(n => {
       if (!numerosMap[n.usuario_id]) {
         numerosMap[n.usuario_id] = [];
       }
@@ -457,54 +464,59 @@ export const notificarSorteoDesierto = async (req, res) => {
     const digitosFormato = calcularDigitos(rifa.cantidad_numeros);
     const numeroFormateado = formatearNumero(parseInt(numero_sorteado), digitosFormato);
 
-    // ✅ 4. OBTENER TODOS LOS PARTICIPANTES
-    const { data: participantes, error: participantesError } = await supabaseAdmin
+    // ✅ 4. OBTENER TODOS LOS PARTICIPANTES ÚNICOS
+    // Paso 1: Obtener todos los usuario_id que compraron en esta rifa
+    const { data: compradoresRaw, error: compradoresError } = await supabaseAdmin
       .from("numeros")
-      .select(`
-        usuario_id,
-        usuarios (
-          id,
-          nombres,
-          apellidos,
-          correo_electronico,
-          telefono
-        )
-      `)
+      .select("usuario_id")
       .eq("rifa_id", rifa_id)
       .not("usuario_id", "is", null);
 
-    if (participantesError) {
-      console.error("❌ Error obteniendo participantes:", participantesError);
-      throw participantesError;
+    if (compradoresError) {
+      console.error("❌ Error obteniendo compradores:", compradoresError);
+      throw compradoresError;
     }
 
-    // Eliminar duplicados
-    const participantesUnicos = participantes?.reduce((acc, curr) => {
-      const existe = acc.find(p => p.usuarios?.id === curr.usuarios?.id);
-      if (!existe && curr.usuarios) {
-        acc.push(curr);
-      }
-      return acc;
-    }, []) || [];
+    // Deduplica IDs en JS
+    const idsUnicos = [...new Set((compradoresRaw || []).map(r => r.usuario_id))];
+    console.log(`📊 Total participantes únicos: ${idsUnicos.length}`);
 
-    console.log(`📊 Total participantes: ${participantesUnicos.length}`);
-
-    if (participantesUnicos.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No hay participantes para notificar"
-      });
+    if (idsUnicos.length === 0) {
+      return res.status(400).json({ success: false, message: "No hay participantes para notificar" });
     }
 
-    // ✅ 5. OBTENER NÚMEROS DE CADA PARTICIPANTE
-    const { data: numerosParticipantes } = await supabaseAdmin
-      .from("numeros")
-      .select("numero, usuario_id")
-      .eq("rifa_id", rifa_id)
-      .not("usuario_id", "is", null);
+    // Paso 2: Cargar datos completos de esos usuarios
+    const { data: usuariosData, error: usuariosError } = await supabaseAdmin
+      .from("usuarios")
+      .select("id, nombres, apellidos, correo_electronico, telefono")
+      .in("id", idsUnicos);
+
+    if (usuariosError) {
+      console.error("❌ Error obteniendo datos de usuarios:", usuariosError);
+      throw usuariosError;
+    }
+
+    const participantesUnicos = (usuariosData || []).map(u => ({ usuarios: u }));
+
+    // ✅ 5. OBTENER NÚMEROS DE CADA PARTICIPANTE (con paginación para pasar el límite de 1000)
+    let todosLosNumeros = [];
+    let desde = 0;
+    const PAGINA = 1000;
+    while (true) {
+      const { data: pagina, error: paginaError } = await supabaseAdmin
+        .from("numeros")
+        .select("numero, usuario_id")
+        .eq("rifa_id", rifa_id)
+        .not("usuario_id", "is", null)
+        .range(desde, desde + PAGINA - 1);
+      if (paginaError || !pagina || pagina.length === 0) break;
+      todosLosNumeros = todosLosNumeros.concat(pagina);
+      if (pagina.length < PAGINA) break;
+      desde += PAGINA;
+    }
 
     const numerosMap = {};
-    numerosParticipantes?.forEach(n => {
+    todosLosNumeros.forEach(n => {
       if (!numerosMap[n.usuario_id]) {
         numerosMap[n.usuario_id] = [];
       }
