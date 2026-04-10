@@ -178,23 +178,18 @@ export const sortearRifa = async (req, res) => {
 
     console.log("✅ Rifa marcada como sorteada en la base de datos");
 
-    // ✅ 6. OBTENER LISTA DE TODOS LOS PARTICIPANTES ÚNICOS
-    // Paso 1: Obtener IDs únicos de compradores (sin límite de filas del JOIN)
-    const { data: compradoresRaw, error: compradoresError } = await supabaseAdmin
-      .from("numeros")
-      .select("usuario_id")
-      .eq("rifa_id", rifa_id)
-      .not("usuario_id", "is", null);
+    // ✅ 6. OBTENER LISTA DE TODOS LOS PARTICIPANTES ÚNICOS VÍA RPC
+    const { data: idsData, error: idsError } = await supabaseAdmin
+      .rpc('obtener_participantes_rifa', { p_rifa_id: rifa_id });
 
-    if (compradoresError) {
-      console.error("⚠️ Error obteniendo compradores:", compradoresError);
+    if (idsError) {
+      console.error("⚠️ Error obteniendo participantes vía RPC:", idsError);
     }
 
-    // Deduplica los IDs en JS
-    const idsUnicos = [...new Set((compradoresRaw || []).map(r => r.usuario_id))];
+    const idsUnicos = (idsData || []).map(r => r.usuario_id);
     console.log(`📊 Total participantes únicos: ${idsUnicos.length}`);
 
-    // Paso 2: Cargar datos completos de esos usuarios
+    // Cargar datos completos de esos usuarios
     const { data: usuariosData, error: usuariosError } = await supabaseAdmin
       .from("usuarios")
       .select("id, nombres, apellidos, correo_electronico, numero_documento, telefono")
@@ -204,14 +199,13 @@ export const sortearRifa = async (req, res) => {
       console.error("⚠️ Error obteniendo datos de usuarios:", usuariosError);
     }
 
-    // Reconvertir al mismo formato que espera el resto del código
     const participantesUnicos = (usuariosData || []).map(u => ({ usuarios: u }));
 
     // ✅ 7. ENVIAR CORREOS (EN SEGUNDO PLANO - NO BLOQUEAR RESPUESTA)
     enviarCorreosPost(ganador, participantesUnicos, rifa, numeroFormateado, loteria_referencia);
 
     // ✅ 8. RESPUESTA EXITOSA AL FRONTEND
-    res.json({
+    return res.json({
       success: true,
       message: `Rifa sorteada exitosamente. Ganador: ${ganador.nombres} ${ganador.apellidos}`,
       data: {
@@ -224,9 +218,8 @@ export const sortearRifa = async (req, res) => {
         ganador: datosGanador,
         loteria_referencia: loteria_referencia || null,
         estadisticas: {
-          total_participantes: participantesUnicos.length,
-          total_numeros_vendidos: participantes?.length || 0,
-          correos_pendientes: participantesUnicos.length + 1
+          total_participantes: idsUnicos.length,
+          correos_pendientes: idsUnicos.length + 1
         }
       }
     });
@@ -268,30 +261,21 @@ const enviarCorreosPost = async (ganador, participantes, rifa, numeroFormateado,
     // Esperar antes de enviar correos a participantes
     await delay(DELAY_ENTRE_CORREOS);
 
-    // 2️⃣ Obtener números de cada participante (con paginación, sin límite de 1000)
-    let todosLosNumeros = [];
-    let desde = 0;
-    const PAGINA = 1000;
-    while (true) {
-      const { data: pagina, error: paginaError } = await supabaseAdmin
-        .from("numeros")
-        .select("numero, usuario_id")
-        .eq("rifa_id", rifa.id)
-        .not("usuario_id", "is", null)
-        .range(desde, desde + PAGINA - 1);
-      if (paginaError || !pagina || pagina.length === 0) break;
-      todosLosNumeros = todosLosNumeros.concat(pagina);
-      if (pagina.length < PAGINA) break;
-      desde += PAGINA;
+    // 2️⃣ Obtener números de TODOS los participantes vía RPC (sin límite de filas)
+    const { data: numerosRpc, error: numerosRpcError } = await supabaseAdmin
+      .rpc('obtener_numeros_por_usuario_rifa', { p_rifa_id: rifa.id });
+
+    if (numerosRpcError) {
+      console.error("⚠️ Error obteniendo números vía RPC:", numerosRpcError);
     }
 
-    // Agrupar números por usuario
+    // Construir mapa: usuario_id -> array de números formateados
+    const digitosRifa = calcularDigitos(rifa.cantidad_numeros);
     const numerosMap = {};
-    todosLosNumeros.forEach(n => {
-      if (!numerosMap[n.usuario_id]) {
-        numerosMap[n.usuario_id] = [];
-      }
-      numerosMap[n.usuario_id].push(formatearNumero(n.numero, calcularDigitos(rifa.cantidad_numeros)));
+    (numerosRpc || []).forEach(row => {
+      numerosMap[row.usuario_id] = (row.numeros_comprados || []).map(n =>
+        formatearNumero(n, digitosRifa)
+      );
     });
 
     // 3️⃣ Enviar correos a participantes UNO POR UNO con delay
@@ -464,28 +448,23 @@ export const notificarSorteoDesierto = async (req, res) => {
     const digitosFormato = calcularDigitos(rifa.cantidad_numeros);
     const numeroFormateado = formatearNumero(parseInt(numero_sorteado), digitosFormato);
 
-    // ✅ 4. OBTENER TODOS LOS PARTICIPANTES ÚNICOS
-    // Paso 1: Obtener todos los usuario_id que compraron en esta rifa
-    const { data: compradoresRaw, error: compradoresError } = await supabaseAdmin
-      .from("numeros")
-      .select("usuario_id")
-      .eq("rifa_id", rifa_id)
-      .not("usuario_id", "is", null);
+    // ✅ 4. OBTENER PARTICIPANTES ÚNICOS VÍA RPC
+    const { data: idsData, error: idsError } = await supabaseAdmin
+      .rpc('obtener_participantes_rifa', { p_rifa_id: rifa_id });
 
-    if (compradoresError) {
-      console.error("❌ Error obteniendo compradores:", compradoresError);
-      throw compradoresError;
+    if (idsError) {
+      console.error("❌ Error obteniendo participantes vía RPC:", idsError);
+      throw idsError;
     }
 
-    // Deduplica IDs en JS
-    const idsUnicos = [...new Set((compradoresRaw || []).map(r => r.usuario_id))];
+    const idsUnicos = (idsData || []).map(r => r.usuario_id);
     console.log(`📊 Total participantes únicos: ${idsUnicos.length}`);
 
     if (idsUnicos.length === 0) {
       return res.status(400).json({ success: false, message: "No hay participantes para notificar" });
     }
 
-    // Paso 2: Cargar datos completos de esos usuarios
+    // Cargar datos completos de esos usuarios
     const { data: usuariosData, error: usuariosError } = await supabaseAdmin
       .from("usuarios")
       .select("id, nombres, apellidos, correo_electronico, telefono")
@@ -498,29 +477,20 @@ export const notificarSorteoDesierto = async (req, res) => {
 
     const participantesUnicos = (usuariosData || []).map(u => ({ usuarios: u }));
 
-    // ✅ 5. OBTENER NÚMEROS DE CADA PARTICIPANTE (con paginación para pasar el límite de 1000)
-    let todosLosNumeros = [];
-    let desde = 0;
-    const PAGINA = 1000;
-    while (true) {
-      const { data: pagina, error: paginaError } = await supabaseAdmin
-        .from("numeros")
-        .select("numero, usuario_id")
-        .eq("rifa_id", rifa_id)
-        .not("usuario_id", "is", null)
-        .range(desde, desde + PAGINA - 1);
-      if (paginaError || !pagina || pagina.length === 0) break;
-      todosLosNumeros = todosLosNumeros.concat(pagina);
-      if (pagina.length < PAGINA) break;
-      desde += PAGINA;
+    // ✅ 5. OBTENER NÚMEROS DE CADA PARTICIPANTE VÍA RPC
+    const { data: numerosRpc, error: numerosRpcError } = await supabaseAdmin
+      .rpc('obtener_numeros_por_usuario_rifa', { p_rifa_id: rifa_id });
+
+    if (numerosRpcError) {
+      console.error("❌ Error obteniendo números vía RPC:", numerosRpcError);
+      throw numerosRpcError;
     }
 
     const numerosMap = {};
-    todosLosNumeros.forEach(n => {
-      if (!numerosMap[n.usuario_id]) {
-        numerosMap[n.usuario_id] = [];
-      }
-      numerosMap[n.usuario_id].push(formatearNumero(n.numero, digitosFormato));
+    (numerosRpc || []).forEach(row => {
+      numerosMap[row.usuario_id] = (row.numeros_comprados || []).map(n =>
+        formatearNumero(n, digitosFormato)
+      );
     });
 
     // ✅ 6. ENVIAR CORREOS EN SEGUNDO PLANO CON RATE LIMITING
