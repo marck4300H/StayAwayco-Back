@@ -473,19 +473,7 @@ export const eliminarRifa = async (req, res) => {
       throw numerosError;
     }
 
-    // 4. Eliminar números asociados de la tabla 'numeros_usuario'
-    console.log("🗑️ Eliminando números comprados por usuarios...");
-    const { error: numerosUsuarioError } = await supabaseAdmin
-      .from("numeros_usuario")
-      .delete()
-      .eq("rifa_id", id);
-
-    if (numerosUsuarioError) {
-      console.error("❌ Error eliminando números_usuario:", numerosUsuarioError);
-      throw numerosUsuarioError;
-    }
-
-    // 5. Finalmente eliminar la rifa
+    // 4. Finalmente eliminar la rifa
     console.log("🗑️ Eliminando registro de la rifa...");
     const { error: deleteRifaError } = await supabaseAdmin
       .from("rifas")
