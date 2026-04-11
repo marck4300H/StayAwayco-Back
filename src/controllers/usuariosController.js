@@ -222,32 +222,20 @@ export const obtenerNumerosUsuario = async (req, res) => {
 
     let allNumerosUsuario = [];
 
-    // ── Buscar por usuario_id (prioritario — usuarios nuevos) ──
-    if (usuario.id) {
-      const { data: byUserId, error: error1 } = await supabaseAdmin
-        .from("numeros")
-        .select("numero, rifa_id")
-        .eq("usuario_id", usuario.id)
-        .order("numero", { ascending: true });
+    // Llamada única a la base de datos a través de RPC para máxima eficiencia
+    // Esto hace que el procesamiento ocurra 100% en PostgreSQL retornando un solo JSON gigante
+    const { data: rpcData, error: rpcError } = await supabaseAdmin
+      .rpc('obtener_numeros_usuario_completos', { 
+        p_usuario_id: usuario.id || null,
+        p_numero_documento: usuario.numero_documento || null
+      });
 
-      if (!error1 && byUserId?.length > 0) {
-        allNumerosUsuario = byUserId;
-        console.log(`📊 Encontrados ${allNumerosUsuario.length} números por usuario_id`);
-      }
-    }
-
-    // ── Fallback: buscar por numero_documento (compatibilidad usuarios antiguos) ──
-    if (allNumerosUsuario.length === 0 && usuario.numero_documento) {
-      const { data: byDoc, error: error2 } = await supabaseAdmin
-        .from("numeros")
-        .select("numero, rifa_id")
-        .eq("comprado_por", usuario.numero_documento)
-        .order("numero", { ascending: true });
-
-      if (!error2 && byDoc?.length > 0) {
-        allNumerosUsuario = byDoc;
-        console.log(`📊 Encontrados ${allNumerosUsuario.length} números por numero_documento`);
-      }
+    if (rpcError) {
+      console.error("❌ Error en RPC obteniendo números:", rpcError);
+    } else if (rpcData && rpcData.length > 0) {
+      // El RPC nos asegura saltar todos los límites de red de Supabase
+      allNumerosUsuario = rpcData;
+      console.log(`📊 Encontrados ${allNumerosUsuario.length} números optimizados vía RPC`);
     }
 
     if (allNumerosUsuario.length === 0) {
