@@ -68,10 +68,10 @@ export const crearOrdenPago = async (req, res) => {
     }
 
     // ✅ Validaciones básicas
-    if (!rifaId || !cantidad || cantidad < 5) {
+    if (!rifaId || !cantidad) {
       return res.status(400).json({
         success: false,
-        message: "Datos inválidos. Cantidad mínima: 5 números."
+        message: "Datos inválidos. La cantidad de calcas es requerida."
       });
     }
 
@@ -97,7 +97,7 @@ export const crearOrdenPago = async (req, res) => {
     if (cantidad < cantidadMinima) {
       return res.status(400).json({
         success: false,
-        message: `La cantidad mínima para esta rifa es ${cantidadMinima} números.`
+        message: `La cantidad mínima para esta actividad es ${cantidadMinima} calcas.`
       });
     }
 
@@ -111,12 +111,12 @@ export const crearOrdenPago = async (req, res) => {
     if (disponiblesCount < cantidad) {
       return res.status(400).json({
         success: false,
-        message: `No hay suficientes números disponibles. Solo quedan ${disponiblesCount}.`
+        message: `No hay suficientes calcas disponibles. Solo quedan ${disponiblesCount}.`
       });
     }
 
     // ✅ Calcular precio CON PRECIO UNITARIO DINÁMICO
-    const total = cantidad * precioUnitario;
+    const total = Number((cantidad * precioUnitario).toFixed(2));
 
     // ✅ Generar referencia única
     const referencia = `RIFA-${rifaId.slice(0, 8)}-${Date.now()}`;
@@ -167,21 +167,21 @@ export const crearOrdenPago = async (req, res) => {
       items: [
         {
           id: rifaId,
-          title: `Rifa: ${rifa.titulo} - ${cantidad} números`,
-          description: `Compra de ${cantidad} números para la rifa "${rifa.titulo}" (Precio unitario: $${precioUnitario.toLocaleString()})`,
+          title: `Actividad: ${rifa.titulo} - ${cantidad} calcas`,
+          description: `Compra de ${cantidad} calcas para la actividad "${rifa.titulo}" (Precio unitario: $${precioUnitario.toLocaleString()})`,
           quantity: 1,
           unit_price: total,
           currency_id: "COP"
         }
       ],
-      payer: {
-        email: usuario?.correo_electronico || "test@user.com",
-        first_name: usuario?.nombres || "Test",
-        last_name: usuario?.apellidos || "User",
-        phone: {
-          area_code: "57",
-          number: usuario?.telefono?.replace(/\D/g, '').slice(-10) || "1234567890"
-        },
+        payer: {
+          email: usuario?.correo_electronico || "cliente@test.com",
+          first_name: usuario?.nombres || "Cliente",
+          last_name: usuario?.apellidos || "StayAway",
+          phone: {
+            area_code: "57",
+            number: usuario?.telefono?.replace(/\D/g, '').slice(-10) || "3001234567"
+          },
         identification: {
           type: usuario?.tipo_documento || "CC",
           number: usuario?.numero_documento || "1234567890"
@@ -202,7 +202,7 @@ export const crearOrdenPago = async (req, res) => {
         pending: pendingUrl
       },
       auto_return: "approved",
-      statement_descriptor: "STAYAWAY RIFAS"
+      statement_descriptor: "STAYAWAY"
     };
 
     console.log("📦 Creando preferencia en Mercado Pago...");
